@@ -2560,7 +2560,7 @@ class ArsdExceptionBase : object.Exception {
 		Params:
 			operation = the specific operation that failed, throwing the exception
 	+/
-	package this(string operation, string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
+	package this(string operation, string file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
 		super(operation, file, line, next);
 	}
 
