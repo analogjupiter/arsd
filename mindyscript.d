@@ -1,3 +1,4 @@
+#!/usr/bin/env -S rdmd -version=MindyscriptEmulatorAppMain
 /+
 	== mindyscript – Minimal D script interpreter ==
 	Copyright Mindy Batek (0xEAB) 2026.
@@ -8,6 +9,14 @@
 
 	- dmd  -i    -version=MindyscriptEmulatorAppMain -run mindyscript.d
 	- ldc2 -i --d-version=MindyscriptEmulatorAppMain -run mindyscript.d
+	- rdmd       -version=MindyscriptEmulatorAppMain      mindyscript.d
+ +/
+/+
+	Run unittests
+
+	- dmd  -i -unittest -main -run mindyscript.d
+	- ldc2 -i -unittest -main -run mindyscript.d
+	- rdmd    -unittest -main      mindyscript.d
  +/
 module arsd.mindyscript;
 
