@@ -25,6 +25,8 @@ import std.conv : to;
 static import std.sumtype;
 static import std.typecons;
 
+// === Commons =================================================================
+
 private {
 	alias string = const(char)[];
 	alias istring = object.string;
@@ -39,57 +41,7 @@ private abstract class ArsdMindyscriptException : ArsdExceptionBase {
 	}
 }
 
-interface LocationException {
-	Location location() const @safe pure nothrow @nogc;
-}
-
-mixin template LocationProperty(alias loc) {
-	Location location() const @safe pure nothrow @nogc => loc;
-}
-
-struct ExitCode {
-	import core.stdc.stdlib;
-	import std.uni;
-
-	private {
-		int _value = EXIT_SUCCESS;
-	}
-
-@safe pure nothrow @nogc:
-
-	public this(bool success) {
-		if (success) {
-			this.setSuccess();
-		}
-		else {
-			this.setFailure();
-		}
-	}
-
-	public this(int value) {
-		_value = value;
-	}
-
-	T opCast(T : int)() const {
-		return _value;
-	}
-
-	bool isSuccess() const => (_value == EXIT_SUCCESS);
-
-	int get() const => _value;
-
-	void set(int value) {
-		_value = value;
-	}
-
-	void setSuccess() {
-		_value = EXIT_SUCCESS;
-	}
-
-	void setFailure() {
-		_value = EXIT_FAILURE;
-	}
-}
+// === File + Location Handling ================================================
 
 struct Location {
 	string file = null;
@@ -144,14 +96,24 @@ struct LocationHumanReadable {
 		return result;
 	}
 
-	string toString() const @safe pure nothrow {
+	istring toString() const @safe pure nothrow {
 		if (file is null) {
-			return line.to!string();
+			return line.to!istring();
 		}
 
-		return file ~ "(" ~ line.to!string() ~ ")";
+		return file ~ "(" ~ line.to!istring() ~ ")";
 	}
 }
+
+interface LocationException {
+	Location location() const @safe pure nothrow @nogc;
+}
+
+mixin template LocationProperty(alias loc) {
+	Location location() const @safe pure nothrow @nogc => loc;
+}
+
+// ===
 
 alias RegisterID = size_t;
 
@@ -263,6 +225,8 @@ struct Program {
 	Instruction[] ir;
 	RegisterID registerCount;
 }
+
+// === Assembler ===============================================================
 
 struct AssemblyToken {
 	enum Type {
@@ -629,6 +593,52 @@ struct Assembler {
 			lexer.popFront();
 			break;
 		}
+	}
+}
+
+// === Virtual Machine =========================================================
+
+struct ExitCode {
+	import core.stdc.stdlib;
+	import std.uni;
+
+	private {
+		int _value = EXIT_SUCCESS;
+	}
+
+@safe pure nothrow @nogc:
+
+	public this(bool success) {
+		if (success) {
+			this.setSuccess();
+		}
+		else {
+			this.setFailure();
+		}
+	}
+
+	public this(int value) {
+		_value = value;
+	}
+
+	T opCast(T : int)() const {
+		return _value;
+	}
+
+	bool isSuccess() const => (_value == EXIT_SUCCESS);
+
+	int get() const => _value;
+
+	void set(int value) {
+		_value = value;
+	}
+
+	void setSuccess() {
+		_value = EXIT_SUCCESS;
+	}
+
+	void setFailure() {
+		_value = EXIT_FAILURE;
 	}
 }
 
