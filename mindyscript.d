@@ -1168,3 +1168,28 @@ mixin template EmulatorAppMain() {
 version (MindyscriptEmulatorAppMain) {
 	mixin EmulatorAppMain!();
 }
+
+// === Test Suite ==============================================================
+
+// ==== Assembler Tests ========================================================
+
+// empty file
+@safe unittest {
+	assert(assemble("").executeSafe().isSuccess);
+	assert(assemble("\n").executeSafe().isSuccess);
+	assert(assemble("\r\n").executeSafe().isSuccess);
+}
+
+// void return
+@safe unittest {
+	assert(assemble("RET\n").executeSafe().isSuccess);
+	assert(assemble("RET").executeSafe().isSuccess);
+
+	// case-insensitive
+	assert(assemble("ret\n").executeSafe().isSuccess);
+}
+
+// int return
+@safe unittest {
+	assert(assemble("LDI $a, 0\nRET $a").executeSafe().isSuccess);
+}
