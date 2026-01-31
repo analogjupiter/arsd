@@ -771,7 +771,12 @@ private class Stack {
 	}
 }
 
-final class VirtualMachine {
+enum MemorySafety : bool {
+	system = false,
+	safe = true,
+}
+
+final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 	private {
 		VirtualMachineSettings _settings;
@@ -876,14 +881,25 @@ final class VirtualMachine {
 	}
 }
 
-Program assemble(string sourceCode, string sourceFile = null) {
+Program assemble(string sourceCode, string sourceFile = null) @safe {
 	auto assembler = Assembler();
 	return assembler.assemble(sourceCode, sourceFile);
 }
 
-ExitCode execute(Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
-	auto vm = new VirtualMachine(settings);
+ExitCode execute(MemorySafety memorySafety = MemorySafety.system)(Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
+	auto vm = new VirtualMachine!memorySafety(settings);
 	return vm.boot(program);
+}
+
+version (unittest) {
+	private alias executeSafe = execute!(MemorySafety.safe);
+}
+
+@safe unittest {
+	import std.traits : isSafe;
+
+	alias executeSafe = execute!(MemorySafety.safe);
+	static assert(isSafe!(executeSafe));
 }
 
 template EmulatorApp() {
