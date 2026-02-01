@@ -7,20 +7,20 @@
 /+
 	Quickstart
 
-	- dmd  -i    -version=MindyscriptEmulatorAppMain -run mindyscript.d
-	- ldc2 -i --d-version=MindyscriptEmulatorAppMain -run mindyscript.d
-	- rdmd       -version=MindyscriptEmulatorAppMain      mindyscript.d
+	- dmd     -version=MindyscriptEmulatorAppMain -run mindyscript.d
+	- ldc2 --d-version=MindyscriptEmulatorAppMain -run mindyscript.d
+	- rdmd    -version=MindyscriptEmulatorAppMain      mindyscript.d
+	- ./mindyscript.d
  +/
 /+
 	Run unittests
 
-	- dmd  -i -unittest -main -run mindyscript.d
-	- ldc2 -i -unittest -main -run mindyscript.d
-	- rdmd    -unittest -main      mindyscript.d
+	- dmd  -unittest -main -run mindyscript.d
+	- ldc2 -unittest -main -run mindyscript.d
+	- rdmd -unittest -main      mindyscript.d
  +/
 module arsd.mindyscript;
 
-import arsd.core;
 import std.conv : to;
 static import std.sumtype;
 static import std.typecons;
@@ -31,13 +31,70 @@ private {
 	alias string = const(char)[];
 	alias istring = object.string;
 	alias match = std.sumtype.match;
-
-	alias InvalidArgument = InvalidArgumentsException.InvalidArgument;
 }
 
-private abstract class ArsdMindyscriptException : ArsdExceptionBase {
-	this(istring message, istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
+abstract class MindyscriptException : Exception {
+@safe pure nothrow @nogc:
+	private this(istring message, istring file = __FILE__, size_t line = __LINE__, Throwable next = null) {
 		super(message, file, line, next);
+	}
+}
+
+class InvalidArgumentException(T) : MindyscriptException {
+
+	public {
+		istring argumentName;
+		istring details;
+		T badValue;
+	}
+
+@safe pure nothrow:
+	private this(
+		istring argumentName,
+		istring details,
+		T badValue,
+		istring file = __FILE__, size_t line = __LINE__, Throwable next = null
+	) {
+		this.argumentName = argumentName;
+		this.details = details;
+		this.badValue = badValue;
+
+		const msg = "Invalid argument `" ~ argumentName ~ "` (=`" ~ badValue.to!istring() ~ "`): " ~ details;
+		super(msg, file, line, next);
+	}
+}
+
+class ArgumentOutOfRangeException(T) : InvalidArgumentException!T {
+
+	public {
+		T minValue;
+		T maxValue;
+		bool maxValueIsExclusive;
+	}
+
+@safe pure nothrow:
+	private this(
+		istring argumentName,
+		istring details,
+		T badValue,
+		T minValue,
+		T maxValue,
+		bool maxValueIsExclusive = true,
+		istring file = __FILE__, size_t line = __LINE__, Throwable next = null
+	) {
+		this.minValue = minValue;
+		this.maxValue = maxValue;
+		this.maxValueIsExclusive = maxValueIsExclusive;
+
+		if (details.length > 0) {
+			details ~= "\n";
+		}
+		const rangeEnd = (this.maxValueIsExclusive) ? ")" : "]";
+		details ~= "Value range: ["
+			~ "`" ~ this.minValue.to!istring() ~ "`, "
+			~ "`" ~ this.maxValue.to!istring() ~ "`" ~ rangeEnd;
+
+		super(argumentName, details, badValue, file, line, next);
 	}
 }
 
@@ -66,14 +123,17 @@ struct LocationHumanReadable {
 
 		if (location.offset < 0) {
 			static immutable msg = "Invalid location offset.";
-			throw new InvalidArgumentsException("location", msg, LimitedVariant(location.offset));
+			throw new InvalidArgumentException!ptrdiff_t("location", msg, location.offset);
 		}
 		if (location.offset > sourceCode.length) {
 			static immutable msg = "`location.offset` must not exceed `sourceCode.length`.";
-			throw new InvalidArgumentsException([
-				InvalidArgument("location.offset", msg, LimitedVariant(location.offset)),
-				InvalidArgument("sourceCode.length", msg, LimitedVariant(cast(long) sourceCode.length)),
-			]);
+			throw new ArgumentOutOfRangeException!ptrdiff_t(
+				`location.offset`,
+				msg,
+				location.offset,
+				0,
+				cast(ptrdiff_t) sourceCode.length,
+			);
 		}
 
 		bool prevWasCR = false;
@@ -251,7 +311,7 @@ struct AssemblyToken {
 	Location location;
 }
 
-class AssemblyLexerException : ArsdMindyscriptException, LocationException {
+class AssemblyLexerException : MindyscriptException, LocationException {
 	Location _location;
 
 	mixin LocationProperty!_location;
@@ -493,7 +553,7 @@ void popWhitespace(ref AssemblyLexer lexer) @safe {
 	}
 }
 
-class AssemblerException : ArsdMindyscriptException {
+class AssemblerException : MindyscriptException {
 	Location location;
 
 	this(istring message, Location location, istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
@@ -642,7 +702,7 @@ struct ExitCode {
 	}
 }
 
-class VirtualMachineException : ArsdMindyscriptException {
+class VirtualMachineException : MindyscriptException {
 	this(istring message, istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
 		super(message, file, line, next);
 	}
@@ -922,7 +982,7 @@ template EmulatorApp() {
 		help,
 	}
 
-	final class DriverException : ArsdMindyscriptException {
+	final class DriverException : MindyscriptException {
 		this(istring message, istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
 			super(message, file, line, next);
 		}
@@ -947,7 +1007,7 @@ template EmulatorApp() {
 				this.printException(ex);
 				return ExitCode(false);
 			}
-			catch (ArsdMindyscriptException ex) {
+			catch (MindyscriptException ex) {
 				this.printException(ex);
 				return ExitCode(false);
 			}
@@ -1019,7 +1079,8 @@ template EmulatorApp() {
 		}
 
 		private ExitCode executeCodeDlang(string sourceCode) {
-			throw new FeatureUnavailableException();
+			// TODO: implement
+			assert(false, "TODO");
 		}
 
 		private ExitCode executeMode() {
