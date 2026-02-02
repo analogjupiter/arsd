@@ -299,7 +299,6 @@ struct AssemblyToken {
 		comment,
 		label,
 		identifier,
-		register,
 
 		literalBoolean,
 		literalCharacter,
@@ -519,10 +518,6 @@ struct AssemblyLexer {
 
 		case ' ':
 			this.lexWhitespace();
-			break;
-
-		case '%':
-			this.lexRegister();
 			break;
 
 		case '0': .. case '9':
