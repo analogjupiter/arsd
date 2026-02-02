@@ -169,13 +169,11 @@ interface LocationException {
 	Location location() const @safe pure nothrow @nogc;
 }
 
-mixin template LocationProperty(alias loc) {
+private mixin template LocationProperty(alias loc) {
 	Location location() const @safe pure nothrow @nogc => loc;
 }
 
-// ===
-
-alias RegisterID = size_t;
+// === Type System =============================================================
 
 alias Variable = std.sumtype.SumType!(
 	typeof(null),
@@ -189,6 +187,10 @@ struct VMVoid {
 }
 
 alias ReturnValue = std.sumtype.SumType!(Variable, VMVoid);
+
+// === ISA =====================================================================
+
+alias RegisterID = size_t;
 
 alias Registers = Variable[];
 
@@ -951,6 +953,8 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 	}
 }
 
+// === Convenience functions ===================================================
+
 Program assemble(string sourceCode, string sourceFile = null) @safe {
 	auto assembler = Assembler();
 	return assembler.assemble(sourceCode, sourceFile);
@@ -971,6 +975,8 @@ version (unittest) {
 	alias executeSafe = execute!(MemorySafety.safe);
 	static assert(isSafe!(executeSafe));
 }
+
+// === Emulator CLI App ========================================================
 
 template EmulatorApp() {
 
