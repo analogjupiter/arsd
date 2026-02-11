@@ -215,6 +215,20 @@ struct ISA {
 		}
 	}
 
+	@Op("ldi")
+	struct LoadImmediateInstruction {
+		RegisterID destination;
+		Variable value;
+
+		void execute(Registers rg) @safe {
+			rg[destination] = value;
+		}
+
+		static void parse(ref AssemblyLexer lexer, ref Assembler.State state) @safe {
+			lexer.popFront();
+		}
+	}
+
 	@Op("ret")
 	struct ReturnInstruction {
 		RegisterID a;
@@ -935,6 +949,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 			// dfmt off
 			fetchedInstruction.match!(
 				(ISA.AddInstruction add) { add.execute(stackFrame.data); },
+				(ISA.LoadImmediateInstruction ldi) { ldi.execute(stackFrame.data); },
 				(ISA.NoOpInstruction nop) { nop.execute(); },
 				(ISA.ReturnInstruction ret) {
 					returnValue = ret.execute(stackFrame.data);
