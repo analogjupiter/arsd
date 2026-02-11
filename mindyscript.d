@@ -450,11 +450,23 @@ struct AssemblyLexer {
 	private void lexNumericLiteral() {
 		if ((_source[0] == '0') && (_source.length >= 2)) {
 			if (_source[1] == 'x') {
+				// TODO: hex literals
 			}
 
 			if (_source[1] == 'b') {
+				// TODO: binary literals
+			}
+
+			if (_source[1] == 'o') {
+				// TODO: octal literals
+				throw new AssemblyLexerException(
+					"Octal literals are not supported.",
+					this.makeLocation(),
+				);
 			}
 		}
+
+		return this.lexDecimalLiteral();
 	}
 
 	private void lexWhitespace() {
