@@ -252,7 +252,7 @@ struct ISA {
 				return;
 			}
 
-			if (lexer.front.type == AssemblyToken.Type.register) {
+			if (lexer.front.type == AssemblyToken.Type.identifier) {
 				const registerID = state.addOrResolveRegister(lexer.front.data);
 				state.ir ~= Instruction(ReturnInstruction(registerID, false));
 				return;
@@ -410,31 +410,6 @@ struct AssemblyLexer {
 		}
 
 		this.makeToken(type, length);
-	}
-
-	private void lexRegister() {
-		import std.ascii : isAlphaNum, isWhite;
-
-		assert(_source[0] == '%');
-
-		foreach (size_t idx, char c; _source[1 .. $]) {
-			if (c.isAlphaNum || (c == '_')) {
-				continue;
-			}
-
-			const actualIdx = idx + 1;
-
-			if (c.isWhite) {
-				return makeToken(Token.Type.register, actualIdx);
-			}
-
-			throw new AssemblyLexerException(
-				"Unexpected character in register identifier.",
-				this.makeLocation(actualIdx),
-			);
-		}
-
-		return this.makeToken(Token.Type.register, _source.length);
 	}
 
 	private void lexDecimalLiteral() {
@@ -1278,5 +1253,5 @@ version (MindyscriptEmulatorAppMain) {
 
 // int return
 @safe unittest {
-	assert(assemble("LDI $a, 0\nRET $a").executeSafe().isSuccess);
+	assert(assemble("LDI a, 0\nRET a").executeSafe().isSuccess);
 }
