@@ -547,11 +547,12 @@ void popWhitespace(ref AssemblyLexer lexer) @safe {
 	}
 }
 
-class AssemblerException : MindyscriptException {
-	Location location;
+class AssemblerException : MindyscriptException, LocationException {
+	private Location _location;
+	mixin LocationProperty!_location;
 
 	this(istring message, Location location, istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
-		this.location = location;
+		_location = location;
 		super(message, file, line, next);
 	}
 }
