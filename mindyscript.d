@@ -338,6 +338,8 @@ class AssemblyLexerException : MindyscriptException, LocationException {
 }
 
 struct AssemblyLexer {
+	import std.ascii;
+
 	private {
 		alias Token = AssemblyToken;
 
@@ -372,8 +374,6 @@ struct AssemblyLexer {
 	}
 
 	private size_t scanRawIdentifier() {
-		import std.ascii : isAlphaNum, isWhite;
-
 		foreach (size_t idx, char c; _source) {
 			if (c.isAlphaNum || (c == '_')) {
 				continue;
@@ -413,8 +413,6 @@ struct AssemblyLexer {
 	}
 
 	private void lexDecimalLiteral() {
-		import std.ascii : isDigit, isWhite;
-
 		bool floatingPoint = false;
 
 		foreach (size_t idx, char c; _source) {
@@ -450,8 +448,6 @@ struct AssemblyLexer {
 	}
 
 	private void lexNumericLiteral() {
-		import std.ascii : isDigit;
-
 		if ((_source[0] == '0') && (_source.length >= 2)) {
 			if (_source[1] == 'x') {
 			}
