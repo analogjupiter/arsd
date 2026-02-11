@@ -15,9 +15,9 @@
 /+
 	Run unittests
 
-	- dmd  -unittest -main -run mindyscript.d
-	- ldc2 -unittest -main -run mindyscript.d
-	- rdmd -unittest -main      mindyscript.d
+	- dmd  -unittest -main -g -run mindyscript.d
+	- ldc2 -unittest -main -g -run mindyscript.d
+	- rdmd -unittest -main -g      mindyscript.d
  +/
 module arsd.mindyscript;
 
