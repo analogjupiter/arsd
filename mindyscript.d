@@ -204,17 +204,6 @@ struct ISA {
 		istring id;
 	}
 
-	@Op("nop")
-	struct NoOpInstruction {
-		void execute() @safe {
-			return; // Do nothing.
-		}
-
-		static void parse(ref AssemblyLexer lexer, ref Assembler.State state) @safe {
-			lexer.popFront();
-		}
-	}
-
 	@Op("ldi")
 	struct LoadImmediateInstruction {
 		RegisterID destination;
@@ -226,6 +215,18 @@ struct ISA {
 
 		static void parse(ref AssemblyLexer lexer, ref Assembler.State state) @safe {
 			lexer.popFront();
+		}
+	}
+
+	@Op("nop")
+	struct NoOpInstruction {
+		void execute() @safe {
+			return; // Do nothing.
+		}
+
+		static void parse(ref AssemblyLexer lexer, ref Assembler.State state) @safe {
+			lexer.popFront();
+			lexer.popLinebreakEquiv();
 		}
 	}
 
@@ -255,6 +256,7 @@ struct ISA {
 			if (lexer.front.type == AssemblyToken.Type.identifier) {
 				const registerID = state.addOrResolveRegister(lexer.front.data);
 				state.ir ~= Instruction(ReturnInstruction(registerID, false));
+				lexer.popFront();
 				return;
 			}
 
@@ -294,6 +296,7 @@ alias Instruction = std.sumtype.SumType!(ISA.InstructionsSeq!());
 template idOf(Instruction) {
 	import std.traits : getUDAs;
 
+	static assert(getUDAs!(Instruction, ISA.Op).length == 1, "Instruction must have one single `@Op`.");
 	enum istring idOf = getUDAs!(Instruction, ISA.Op)[0].id;
 }
 
@@ -547,6 +550,20 @@ void popWhitespace(ref AssemblyLexer lexer) @safe {
 	}
 }
 
+void popLinebreakEquiv(ref AssemblyLexer lexer) @safe {
+	lexer.popWhitespace();
+
+	if (lexer.empty) {
+		return;
+	}
+
+	if (lexer.front.type != AssemblyToken.Type.linebreak) {
+		throw new AssemblerException("Unexpected token type; line-break expected.", lexer.front.location);
+	}
+
+	lexer.popFront();
+}
+
 class AssemblerException : MindyscriptException, LocationException {
 	private Location _location;
 	mixin LocationProperty!_location;
@@ -644,9 +661,7 @@ struct Assembler {
 			break;
 
 		default:
-			// TODO: something else
-			lexer.popFront();
-			break;
+			throw new AssemblerException("Unexpected token type.", lexer.front.location);
 		}
 	}
 }
@@ -1040,11 +1055,11 @@ template EmulatorApp() {
 		private ExitCode executeCodeAny(string sourceCode, istring sourceFile) {
 			switch (_mode) {
 			case Mode.assembly:
-				return executeCodeAssembly(sourceCode);
+				return executeCodeAssembly(sourceCode, sourceFile);
 			case Mode.autoDetect:
 				return executeCodeAutoDetect(sourceCode, sourceFile);
 			case Mode.dlang:
-				return executeCodeDlang(sourceCode);
+				return executeCodeDlang(sourceCode, sourceFile);
 			default:
 				assert(false, "Bad `_mode`.");
 			}
@@ -1052,8 +1067,8 @@ template EmulatorApp() {
 			assert(false, "unreachable");
 		}
 
-		private ExitCode executeCodeAssembly(string sourceCode) {
-			auto program = assemble(sourceCode);
+		private ExitCode executeCodeAssembly(string sourceCode, istring sourceFile) {
+			auto program = assemble(sourceCode, sourceFile);
 			return execute(program);
 		}
 
@@ -1065,11 +1080,11 @@ template EmulatorApp() {
 
 			switch (fileExt) {
 			case ".d":
-				return executeCodeDlang(sourceCode);
+				return executeCodeDlang(sourceCode, sourceFile);
 
 			case ".asm":
 			case ".s":
-				return executeCodeAssembly(sourceCode);
+				return executeCodeAssembly(sourceCode, sourceFile);
 
 			default:
 				throw new DriverException("Could not auto-detect type of file: " ~ sourceFile);
@@ -1078,7 +1093,7 @@ template EmulatorApp() {
 			assert(false, "unreachable");
 		}
 
-		private ExitCode executeCodeDlang(string sourceCode) {
+		private ExitCode executeCodeDlang(string sourceCode, istring sourceFile) {
 			// TODO: implement
 			assert(false, "TODO");
 		}
@@ -1175,18 +1190,34 @@ template EmulatorApp() {
 					: "       ";
 				// dfmt on
 
+				debug {
+					stderr.write(ex.file, "(", ex.line, "): ");
+				}
+
 				stderr.writeln(prelude, ex.message);
 
 				if (auto locEx = cast(LocationException) ex) {
 					stderr.writeln(locEx.location);
 				}
 
-				if (ex.next !is null) {
-					printExceptionImpl(ex, false);
+				debug {
+					try {
+						stderr.write("----\n");
+						foreach (t; ex.info) {
+							stderr.writeln(t);
+						}
+					}
+					catch (Throwable) {
+						// ignore more errors
+					}
 				}
 			}
 
-			printExceptionImpl(ex, true);
+			bool first = true;
+			foreach (e; ex) {
+				printExceptionImpl(ex, first);
+				first = false;
+			}
 		}
 
 		private void printHelp() @system {
