@@ -281,7 +281,7 @@ struct ISA {
 	struct AddInstruction {
 		BinaryOperationRegisterIDs registerIDs;
 
-		void execute(Registers rg) @safe {
+		void execute(Registers rg) const @safe {
 			executeOperator!"lhs + rhs"(rg, registerIDs);
 		}
 
@@ -296,7 +296,7 @@ struct ISA {
 		RegisterID destination;
 		Variable value;
 
-		void execute(Registers rg) @safe {
+		void execute(Registers rg) const @safe {
 			rg[destination] = value;
 		}
 
@@ -315,7 +315,7 @@ struct ISA {
 
 	@Op("nop")
 	struct NoOpInstruction {
-		void execute() @safe {
+		void execute() const @safe {
 			return; // Do nothing.
 		}
 
@@ -328,7 +328,7 @@ struct ISA {
 	struct PrintInstruction {
 		RegisterID a;
 
-		void execute(Registers reg) @safe {
+		void execute(Registers reg) const @safe {
 			import std.stdio : writeln;
 
 			writeln(reg[a]);
@@ -350,7 +350,7 @@ struct ISA {
 		RegisterID a;
 		bool returnVoid;
 
-		ReturnValue execute(Registers rg) @safe {
+		ReturnValue execute(Registers rg) const @safe {
 			if (returnVoid) {
 				return ReturnValue(VMVoid());
 			}
@@ -379,7 +379,7 @@ struct ISA {
 	struct SubInstruction {
 		BinaryOperationRegisterIDs registerIDs;
 
-		void execute(Registers rg) @safe {
+		void execute(Registers rg) const @safe {
 			executeOperator!"lhs - rhs"(rg, registerIDs);
 		}
 
@@ -1456,15 +1456,12 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 			// dfmt off
 			fetchedInstruction.match!(
-				(ISA.AddInstruction add) { add.execute(stackFrame.data); },
-				(ISA.LoadImmediateInstruction ldi) { ldi.execute(stackFrame.data); },
 				(ISA.NoOpInstruction nop) { nop.execute(); },
-				(ISA.PrintInstruction print) { print.execute(stackFrame.data); },
 				(ISA.ReturnInstruction ret) {
 					returnValue = ret.execute(stackFrame.data);
 					programCounter = program.ir.length; // break program execution loop
 				},
-				(ISA.SubInstruction sub) { sub.execute(stackFrame.data); },
+				(decodedInstruction) { decodedInstruction.execute(stackFrame.data); },
 			);
 			// dfmt on
 		}
@@ -1830,7 +1827,6 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nRET a").executeSafe().value == 7);
 	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nADD a,a,b\nRET a").executeSafe().value == 10);
 }
-
 
 // subtract integers
 @safe unittest {
