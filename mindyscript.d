@@ -221,18 +221,50 @@ alias RegisterID = size_t;
 
 alias Registers = Variable[];
 
-private pragma(inline, true) void operatorImplementation(string op)(
-	Registers rg,
-	RegisterID dst,
-	RegisterID lhs,
-	RegisterID rhs,
+private pragma(inline, true) void executeOperator(string op)(
+	Registers registers,
+	BinaryOperationRegisterIDs registerIDs,
 ) @safe {
 	match!(
-		(typeof(null) a, typeof(null) b) { rg[dst] = null; },
-		(typeof(null) a, b) { rg[dst] = null; },
-		(a, typeof(null) b) { rg[dst] = null; },
-		(a, b) { rg[dst] = mixin(op); },
-	)(rg[lhs], rg[rhs]);
+		(typeof(null) lhs, typeof(null) rhs) { registers[registerIDs.dst] = null; },
+		(typeof(null) lhs, rhs) { registers[registerIDs.dst] = null; },
+		(lhs, typeof(null) rhs) { registers[registerIDs.dst] = null; },
+		(lhs, rhs) { registers[registerIDs.dst] = mixin(op); },
+	)(registers[registerIDs.lhs], registers[registerIDs.rhs]);
+}
+
+struct BinaryOperationRegisterIDs {
+	/// Destination register
+	RegisterID dst;
+
+	/// Left-hand side register
+	RegisterID lhs;
+
+	/// Right-hand side register
+	RegisterID rhs;
+}
+
+private BinaryOperationRegisterIDs parseBinaryOperation(
+	ref AssemblyInstructionArgumentsParser argsParser,
+	ref Assembler.State state,
+) @safe {
+	argsParser.setupConstraints(3, 3);
+
+	BinaryOperationRegisterIDs result;
+
+	argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+	result.dst = state.addOrResolveRegister(argsParser.front.data);
+	argsParser.popFront();
+
+	argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+	result.lhs = state.addOrResolveRegister(argsParser.front.data);
+	argsParser.popFront();
+
+	argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+	result.rhs = state.addOrResolveRegister(argsParser.front.data);
+	argsParser.popFront();
+
+	return result;
 }
 
 /++
@@ -247,29 +279,15 @@ struct ISA {
 
 	@Op("add")
 	struct AddInstruction {
-		RegisterID sum;
-		RegisterID a;
-		RegisterID b;
+		BinaryOperationRegisterIDs registerIDs;
 
 		void execute(Registers rg) @safe {
-			operatorImplementation!"a + b"(rg, sum, a, b);
+			executeOperator!"lhs + rhs"(rg, registerIDs);
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
-			argsParser.setupConstraints(3, 3);
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
-			const registerSum = state.addOrResolveRegister(argsParser.front.data);
-			argsParser.popFront();
-
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
-			const registerA = state.addOrResolveRegister(argsParser.front.data);
-			argsParser.popFront();
-
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
-			const registerB = state.addOrResolveRegister(argsParser.front.data);
-			argsParser.popFront();
-
-			state.ir ~= Instruction(AddInstruction(registerSum, registerA, registerB));
+			const registerIDs = parseBinaryOperation(argsParser, state);
+			state.ir ~= Instruction(AddInstruction(registerIDs));
 		}
 	}
 
