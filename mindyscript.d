@@ -1072,6 +1072,8 @@ struct ExitCode {
 		_value = value;
 	}
 
+	ref inout(int) value() inout return => _value;
+
 	void setSuccess() {
 		_value = EXIT_SUCCESS;
 	}
@@ -1664,4 +1666,11 @@ version (MindyscriptEmulatorAppMain) {
 @safe unittest {
 	assert(assemble("LDI a, 0\nRET a").executeSafe().isSuccess);
 	assert(assemble("LDI b, 1\nRET b").executeSafe().isFailure);
+}
+
+// add integers
+@safe unittest {
+	assert(assemble("LDI a,4\nLDI b,3\nADD c,a,b\nRET c").executeSafe().value == 7);
+	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nRET a").executeSafe().value == 7);
+	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nADD a,a,b\nRET a").executeSafe().value == 10);
 }
