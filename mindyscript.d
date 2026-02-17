@@ -824,12 +824,12 @@ class AssemblerBadArgumentCountException : AssemblerException {
 		istring msg;
 
 		if (expectedMin == expectedMax) {
-			msg = "Unexpected argument count for instruction `" ~ instructionID.idup ~ "`;"
+			msg = "Bad argument count for instruction `" ~ instructionID.idup ~ "`;"
 				~ " expected `" ~ expectedMin.to!istring() ~ "`,"
 				~ " got `" ~ got.to!istring() ~ "`.";
 		}
 		else {
-			msg = "Unexpected argument count for instruction `" ~ instructionID.idup ~ "`;"
+			msg = "Bad argument count for instruction `" ~ instructionID.idup ~ "`;"
 				~ " expected `" ~ expectedMin.to!istring() ~ "` .. `" ~ expectedMax.to!istring() ~ "`,"
 				~ " got `" ~ got.to!istring() ~ "`.";
 		}
