@@ -1094,7 +1094,7 @@ struct ExitCode {
 		_value = value;
 	}
 
-	ref inout(int) value() inout return => _value;
+	ref inout(int) value() return inout => _value;
 
 	void setSuccess() {
 		_value = EXIT_SUCCESS;
