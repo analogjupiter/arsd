@@ -231,6 +231,43 @@ struct ISA {
 		istring id;
 	}
 
+	@Op("add")
+	struct AddInstruction {
+		RegisterID sum;
+		RegisterID a;
+		RegisterID b;
+
+		void execute(Registers rg) @safe {
+			match!(
+				(typeof(null) a, typeof(null) b) { rg[sum] = null; },
+				(typeof(null) a, b) { rg[sum] = null; },
+				(a, typeof(null) b) { rg[sum] = null; },
+				(a, b) { rg[sum] = a + b; },
+			)(rg[a], rg[b]);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.throwIfEmpty(3, 3);
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const registerSum = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+
+			argsParser.throwIfEmpty(3, 3);
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const registerA = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+
+			argsParser.throwIfEmpty(3, 3);
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const registerB = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+
+			argsParser.throwIfNotEmpty(3, 3);
+
+			state.ir ~= Instruction(AddInstruction(registerSum, registerA, registerB));
+		}
+	}
+
 	@Op("ldi")
 	struct LoadImmediateInstruction {
 		RegisterID destination;
@@ -294,43 +331,6 @@ struct ISA {
 			argsParser.throwIfNotEmpty(0, 1);
 
 			state.ir ~= Instruction(ReturnInstruction(registerID, false));
-		}
-	}
-
-	@Op("add")
-	struct AddInstruction {
-		RegisterID sum;
-		RegisterID a;
-		RegisterID b;
-
-		void execute(Registers rg) @safe {
-			match!(
-				(typeof(null) a, typeof(null) b) { rg[sum] = null; },
-				(typeof(null) a, b) { rg[sum] = null; },
-				(a, typeof(null) b) { rg[sum] = null; },
-				(a, b) { rg[sum] = a + b; },
-			)(rg[a], rg[b]);
-		}
-
-		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
-			argsParser.throwIfEmpty(3, 3);
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
-			const registerSum = state.addOrResolveRegister(argsParser.front.data);
-			argsParser.popFront();
-
-			argsParser.throwIfEmpty(3, 3);
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
-			const registerA = state.addOrResolveRegister(argsParser.front.data);
-			argsParser.popFront();
-
-			argsParser.throwIfEmpty(3, 3);
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
-			const registerB = state.addOrResolveRegister(argsParser.front.data);
-			argsParser.popFront();
-
-			argsParser.throwIfNotEmpty(3, 3);
-
-			state.ir ~= Instruction(AddInstruction(registerSum, registerA, registerB));
 		}
 	}
 
