@@ -383,12 +383,16 @@ struct AssemblyToken {
 	enum Type {
 		error,
 		eof,
+
+		shebang,
+
 		whitespace,
 		linebreak,
+
 		comma,
 		comment,
-		label,
 		identifier,
+		label,
 
 		literalBoolean,
 		literalCharacter,
@@ -498,6 +502,22 @@ struct AssemblyLexer {
 		_front = Token(type, _source[0 .. length], location);
 		_source = _source[length .. $];
 		_offset += length;
+	}
+
+	private void lexHash() {
+		// shebang
+		if ((_source.length >= 2) && (_source[1] == '!')) {
+			foreach (idx, c; _source[2 .. $]) {
+				if ((c == '\n') || (c == '\r')) {
+					return this.makeToken(Token.Type.shebang, 2 + idx);
+				}
+			}
+
+			return this.makeToken(Token.Type.shebang, _source.length);
+		}
+
+		// TODO: implement
+		assert(false, "Not implemented.");
 	}
 
 	private size_t scanRawIdentifier() {
@@ -638,6 +658,10 @@ struct AssemblyLexer {
 				break;
 			}
 			this.makeToken(Token.Type.linebreak, 1);
+			break;
+
+		case '#':
+			this.lexHash();
 			break;
 
 		case ' ':
@@ -992,6 +1016,13 @@ struct Assembler {
 		_state.ir = appender!(Instruction[])();
 		_state.labels = appender!(Label[])();
 		_state.registers = appender!(string[])();
+
+		// shebang handling
+		if (!lexer.empty) {
+			if (lexer.front.type == Token.Type.shebang) {
+				lexer.popFront();
+			}
+		}
 
 		while (!lexer.empty) {
 			parseStatement(lexer);
