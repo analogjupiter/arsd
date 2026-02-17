@@ -287,7 +287,7 @@ struct ISA {
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
 			const registerIDs = parseBinaryOperation(argsParser, state);
-			state.ir ~= Instruction(AddInstruction(registerIDs));
+			state.ir ~= Instruction(typeof(this)(registerIDs));
 		}
 	}
 
@@ -372,6 +372,20 @@ struct ISA {
 			argsParser.popFront();
 
 			state.ir ~= Instruction(ReturnInstruction(registerID, false));
+		}
+	}
+
+	@Op("sub")
+	struct SubInstruction {
+		BinaryOperationRegisterIDs registerIDs;
+
+		void execute(Registers rg) @safe {
+			executeOperator!"lhs - rhs"(rg, registerIDs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			const registerIDs = parseBinaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
 		}
 	}
 
@@ -1450,6 +1464,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 					returnValue = ret.execute(stackFrame.data);
 					programCounter = program.ir.length; // break program execution loop
 				},
+				(ISA.SubInstruction sub) { sub.execute(stackFrame.data); },
 			);
 			// dfmt on
 		}
@@ -1814,4 +1829,11 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI a,4\nLDI b,3\nADD c,a,b\nRET c").executeSafe().value == 7);
 	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nRET a").executeSafe().value == 7);
 	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nADD a,a,b\nRET a").executeSafe().value == 10);
+}
+
+
+// subtract integers
+@safe unittest {
+	assert(assemble("LDI a,7\nLDI b,4\nSUB c,a,b\nRET c").executeSafe().value == 3);
+	assert(assemble("LDI a,7\nLDI b,4\nSUB a,a,b\nRET a").executeSafe().value == 3);
 }
