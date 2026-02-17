@@ -1707,6 +1707,14 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("\r\n").executeSafe().isSuccess);
 }
 
+// shebang
+@safe unittest {
+	assert(assemble("#!/usr/bin/env -S mindyscript --asm").executeSafe().isSuccess);
+	assert(assemble("#!/usr/bin/env -S mindyscript --asm\n").executeSafe().isSuccess);
+	assert(assemble("#!/usr/bin/env -S mindyscript --asm\r\n").executeSafe().isSuccess);
+	assert(assemble("#!/usr/bin/env -S mindyscript --asm\nRET\n").executeSafe().isSuccess);
+}
+
 // void return
 @safe unittest {
 	assert(assemble("RET\r\n").executeSafe().isSuccess);
