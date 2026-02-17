@@ -221,6 +221,20 @@ alias RegisterID = size_t;
 
 alias Registers = Variable[];
 
+private pragma(inline, true) void operatorImplementation(string op)(
+	Registers rg,
+	RegisterID dst,
+	RegisterID lhs,
+	RegisterID rhs,
+) @safe {
+	match!(
+		(typeof(null) a, typeof(null) b) { rg[dst] = null; },
+		(typeof(null) a, b) { rg[dst] = null; },
+		(a, typeof(null) b) { rg[dst] = null; },
+		(a, b) { rg[dst] = mixin(op); },
+	)(rg[lhs], rg[rhs]);
+}
+
 /++
 	Instruction Set Architecture
  +/
@@ -238,12 +252,7 @@ struct ISA {
 		RegisterID b;
 
 		void execute(Registers rg) @safe {
-			match!(
-				(typeof(null) a, typeof(null) b) { rg[sum] = null; },
-				(typeof(null) a, b) { rg[sum] = null; },
-				(a, typeof(null) b) { rg[sum] = null; },
-				(a, b) { rg[sum] = a + b; },
-			)(rg[a], rg[b]);
+			operatorImplementation!"a + b"(rg, sum, a, b);
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
