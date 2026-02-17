@@ -304,6 +304,28 @@ struct ISA {
 		}
 	}
 
+	@Op("print")
+	struct PrintInstruction {
+		RegisterID a;
+
+		void execute(Registers reg) @safe {
+			import std.stdio : writeln;
+
+			writeln(reg[a]);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.throwIfEmpty(1, 1);
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+
+			const registerID = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+			argsParser.throwIfNotEmpty(1, 1);
+
+			state.ir ~= Instruction(PrintInstruction(registerID));
+		}
+	}
+
 	@Op("ret")
 	struct ReturnInstruction {
 		RegisterID a;
@@ -1321,6 +1343,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 				(ISA.AddInstruction add) { add.execute(stackFrame.data); },
 				(ISA.LoadImmediateInstruction ldi) { ldi.execute(stackFrame.data); },
 				(ISA.NoOpInstruction nop) { nop.execute(); },
+				(ISA.PrintInstruction print) { print.execute(stackFrame.data); },
 				(ISA.ReturnInstruction ret) {
 					returnValue = ret.execute(stackFrame.data);
 					programCounter = program.ir.length; // break program execution loop
