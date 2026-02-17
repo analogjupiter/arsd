@@ -1724,6 +1724,11 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("#!/usr/bin/env -S mindyscript --asm\nRET\n").executeSafe().isSuccess);
 }
 
+// no-op
+@safe unittest {
+	assert(assemble("NOP\nNOP\nNOP\nNOP\n").executeSafe().isSuccess);
+}
+
 // void return
 @safe unittest {
 	assert(assemble("RET\r\n").executeSafe().isSuccess);
