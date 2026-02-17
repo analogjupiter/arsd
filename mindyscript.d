@@ -256,22 +256,18 @@ struct ISA {
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
-			argsParser.throwIfEmpty(3, 3);
+			argsParser.setupConstraints(3, 3);
 			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
 			const registerSum = state.addOrResolveRegister(argsParser.front.data);
 			argsParser.popFront();
 
-			argsParser.throwIfEmpty(3, 3);
 			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
 			const registerA = state.addOrResolveRegister(argsParser.front.data);
 			argsParser.popFront();
 
-			argsParser.throwIfEmpty(3, 3);
 			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
 			const registerB = state.addOrResolveRegister(argsParser.front.data);
 			argsParser.popFront();
-
-			argsParser.throwIfNotEmpty(3, 3);
 
 			state.ir ~= Instruction(AddInstruction(registerSum, registerA, registerB));
 		}
@@ -287,16 +283,13 @@ struct ISA {
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
-			argsParser.throwIfEmpty(2, 2);
+			argsParser.setupConstraints(2, 2);
 			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
 			const registerDestination = state.addOrResolveRegister(argsParser.front.data);
 			argsParser.popFront();
 
-			argsParser.throwIfEmpty(2, 2);
 			const valueToLoad = parseLiteral(argsParser.front);
 			argsParser.popFront();
-
-			argsParser.throwIfNotEmpty(2, 2);
 
 			state.ir ~= Instruction(LoadImmediateInstruction(registerDestination, valueToLoad));
 		}
@@ -309,7 +302,7 @@ struct ISA {
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
-			argsParser.throwIfNotEmpty(0, 0);
+			argsParser.setupConstraints(0, 0);
 		}
 	}
 
@@ -324,12 +317,11 @@ struct ISA {
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
-			argsParser.throwIfEmpty(1, 1);
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			argsParser.setupConstraints(1, 1);
 
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
 			const registerID = state.addOrResolveRegister(argsParser.front.data);
 			argsParser.popFront();
-			argsParser.throwIfNotEmpty(1, 1);
 
 			state.ir ~= Instruction(PrintInstruction(registerID));
 		}
@@ -349,6 +341,8 @@ struct ISA {
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.setupConstraints(0, 1);
+
 			// RET void
 			if (argsParser.empty) {
 				state.ir ~= Instruction(ReturnInstruction(RegisterID.max, true));
@@ -356,10 +350,8 @@ struct ISA {
 			}
 
 			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
-
 			const registerID = state.addOrResolveRegister(argsParser.front.data);
 			argsParser.popFront();
-			argsParser.throwIfNotEmpty(0, 1);
 
 			state.ir ~= Instruction(ReturnInstruction(registerID, false));
 		}
@@ -859,9 +851,13 @@ struct AssemblyInstructionArgumentsParser {
 
 	private {
 		AssemblyStatementLexer _lexer;
+
 		State _state = State.initial;
 		ptrdiff_t _argumentCount = -1;
 		AssemblyToken _instruction;
+
+		ptrdiff_t _argumentCountMin = -1;
+		ptrdiff_t _argumentCountMax = -1;
 	}
 
 @safe:
@@ -875,6 +871,50 @@ struct AssemblyInstructionArgumentsParser {
 		this(AssemblyStatementLexer(lexer));
 	}
 
+	void setupConstraints(ptrdiff_t argumentCountMin, ptrdiff_t argumentCountMax) {
+		_argumentCountMin = argumentCountMin;
+		_argumentCountMax = argumentCountMax;
+		this.validateConstraints();
+	}
+
+	private void validateConstraints() {
+		auto makeException(istring file = __FILE__, size_t line = __LINE__) {
+			ptrdiff_t countFurther = 0;
+			if (!this.empty) {
+				auto clone = this;
+				foreach (tmp; clone) {
+					++countFurther;
+				}
+
+			}
+			const got = _argumentCount + countFurther;
+
+			return new AssemblerBadArgumentCountException(
+				got,
+				_argumentCountMin,
+				_argumentCountMax,
+				_instruction.data,
+				_instruction.location,
+				file,
+				line,
+			);
+		}
+
+		if (_argumentCountMin < 0) {
+			return;
+		}
+
+		if (_argumentCount < _argumentCountMin) {
+			if (this.empty) {
+				throw makeException();
+			}
+		}
+
+		if (_argumentCount > _argumentCountMax) {
+			throw makeException();
+		}
+	}
+
 	AssemblyLexer wrappedLexer() inout => _lexer.wrappedLexer;
 
 	bool empty() const => _lexer.empty;
@@ -884,6 +924,7 @@ struct AssemblyInstructionArgumentsParser {
 	void popFront() {
 		_lexer.popFront();
 		this.skip();
+		this.validateConstraints();
 	}
 
 	private void skip() {
