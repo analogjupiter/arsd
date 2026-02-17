@@ -21,7 +21,9 @@
  +/
 module arsd.mindyscript;
 
+import std.array : appender;
 import std.conv : to;
+import std.meta;
 static import std.sumtype;
 static import std.typecons;
 
@@ -179,14 +181,39 @@ alias Variable = std.sumtype.SumType!(
 	typeof(null),
 	bool,
 	char,
-	int,
 	float,
+	int,
 );
 
 struct VMVoid {
 }
 
 alias ReturnValue = std.sumtype.SumType!(Variable, VMVoid);
+
+enum isVariableType(T) = (staticIndexOf!(T, Variable.Types) >= 0);
+
+final class LiteralParserException : MindyscriptException {
+	string rawValue;
+
+	private this(
+		string rawValue,
+		istring file = __FILE__, size_t line = __LINE__, Throwable next = null,
+	) @safe {
+		this.rawValue = rawValue;
+		super("Bad literal value.", file, line, next);
+	}
+}
+
+Variable parseLiteral(T)(string rawValue) @safe if (isVariableType!T) {
+	try {
+		return Variable(rawValue.to!T());
+	}
+	catch (Exception ex) {
+		throw new LiteralParserException(rawValue, __FILE__, __LINE__, ex);
+	}
+
+	assert(false, "unreachable");
+}
 
 // === ISA =====================================================================
 
@@ -213,8 +240,19 @@ struct ISA {
 			rg[destination] = value;
 		}
 
-		static void parse(ref AssemblyLexer lexer, ref Assembler.State state) @safe {
-			lexer.popFront();
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.throwIfEmpty(2, 2);
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const registerDestination = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+
+			argsParser.throwIfEmpty(2, 2);
+			const valueToLoad = parseLiteral(argsParser.front);
+			argsParser.popFront();
+
+			argsParser.throwIfNotEmpty(2, 2);
+
+			state.ir ~= Instruction(LoadImmediateInstruction(registerDestination, valueToLoad));
 		}
 	}
 
@@ -224,9 +262,8 @@ struct ISA {
 			return; // Do nothing.
 		}
 
-		static void parse(ref AssemblyLexer lexer, ref Assembler.State state) @safe {
-			lexer.popFront();
-			lexer.popLinebreakEquiv();
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.throwIfNotEmpty(0, 0);
 		}
 	}
 
@@ -243,32 +280,28 @@ struct ISA {
 			return ReturnValue(rg[a]);
 		}
 
-		static void parse(ref AssemblyLexer lexer, ref Assembler.State state) @safe {
-			lexer.popFront();
-			lexer.popWhitespace();
-
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
 			// RET void
-			if (lexer.front.type == AssemblyToken.Type.linebreak) {
+			if (argsParser.empty) {
 				state.ir ~= Instruction(ReturnInstruction(RegisterID.max, true));
 				return;
 			}
 
-			if (lexer.front.type == AssemblyToken.Type.identifier) {
-				const registerID = state.addOrResolveRegister(lexer.front.data);
-				state.ir ~= Instruction(ReturnInstruction(registerID, false));
-				lexer.popFront();
-				return;
-			}
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
 
-			throw new AssemblerException("Unexpected token type.", lexer.front.location);
+			const registerID = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+			argsParser.throwIfNotEmpty(0, 1);
+
+			state.ir ~= Instruction(ReturnInstruction(registerID, false));
 		}
 	}
 
 	@Op("add")
 	struct AddInstruction {
+		RegisterID sum;
 		RegisterID a;
 		RegisterID b;
-		RegisterID sum;
 
 		void execute(Registers rg) @safe {
 			match!(
@@ -279,8 +312,25 @@ struct ISA {
 			)(rg[a], rg[b]);
 		}
 
-		static void parse(ref AssemblyLexer lexer, ref Assembler.State state) @safe {
-			lexer.popFront();
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.throwIfEmpty(3, 3);
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const registerSum = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+
+			argsParser.throwIfEmpty(3, 3);
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const registerA = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+
+			argsParser.throwIfEmpty(3, 3);
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const registerB = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+
+			argsParser.throwIfNotEmpty(3, 3);
+
+			state.ir ~= Instruction(AddInstruction(registerSum, registerA, registerB));
 		}
 	}
 
@@ -313,14 +363,15 @@ struct AssemblyToken {
 		eof,
 		whitespace,
 		linebreak,
+		comma,
 		comment,
 		label,
 		identifier,
 
 		literalBoolean,
 		literalCharacter,
-		literalInteger,
 		literalFloatingPoint,
+		literalInteger,
 		literalString,
 	}
 
@@ -329,14 +380,65 @@ struct AssemblyToken {
 	Location location;
 }
 
-class AssemblyLexerException : MindyscriptException, LocationException {
-	Location _location;
+Variable parseLiteral(AssemblyToken token) @safe {
+	try {
+		switch (token.type) {
+		case AssemblyToken.Type.literalBoolean:
+			return parseLiteral!bool(token.data);
 
+		case AssemblyToken.Type.literalCharacter:
+			return parseLiteral!char(token.data[1 .. 2]);
+
+		case AssemblyToken.Type.literalFloatingPoint:
+			return parseLiteral!float(token.data);
+
+		case AssemblyToken.Type.literalInteger:
+			return parseLiteral!int(token.data);
+
+		case AssemblyToken.Type.literalString:
+			// TODO: implement
+			assert(false, "Not implemented.");
+
+		default:
+			throw new AssemblerUnexpectedTokenException(token.type, [
+				AssemblyToken.Type.literalBoolean,
+				AssemblyToken.Type.literalCharacter,
+				AssemblyToken.Type.literalFloatingPoint,
+				AssemblyToken.Type.literalInteger,
+				AssemblyToken.Type.literalString,
+			], token.location);
+		}
+	}
+	catch (Exception ex) {
+		throw new AssemblerException("Cannot parse invalid literal value.", token.location, __FILE__, __LINE__, ex);
+	}
+}
+
+class AssemblerException : MindyscriptException, LocationException {
+	private Location _location;
 	mixin LocationProperty!_location;
 
-	this(istring message, Location location, istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
+	this(
+		istring message,
+		Location location,
+		istring file = __FILE__, size_t line = __LINE__, Throwable next = null,
+	) @safe {
 		_location = location;
 		super(message, file, line, next);
+	}
+}
+
+class AssemblyLexerException : AssemblerException {
+	this(
+		istring message,
+		Location location,
+		istring file = __FILE__, size_t line = __LINE__, Throwable next = null,
+	) @safe {
+		super(
+			message,
+			location,
+			file, line, next,
+		);
 	}
 }
 
@@ -382,12 +484,12 @@ struct AssemblyLexer {
 				continue;
 			}
 
-			if (c.isWhite) {
+			if (c.isWhite || (c == ',')) {
 				return idx;
 			}
 
 			throw new AssemblyLexerException(
-				"Unexpected character in identifier.",
+				"Unexpected character `" ~ c ~ "` in identifier.",
 				this.makeLocation(idx),
 			);
 		}
@@ -520,6 +622,10 @@ struct AssemblyLexer {
 			this.lexWhitespace();
 			break;
 
+		case ',':
+			this.makeToken(Token.Type.comma, 1);
+			break;
+
 		case '0': .. case '9':
 			this.lexNumericLiteral();
 			break;
@@ -564,25 +670,272 @@ void popLinebreakEquiv(ref AssemblyLexer lexer) @safe {
 	lexer.popFront();
 }
 
-class AssemblerException : MindyscriptException, LocationException {
-	private Location _location;
-	mixin LocationProperty!_location;
+struct AssemblyStatementLexer {
+	private {
+		bool _empty = true;
+		AssemblyLexer _lexer;
+	}
 
-	this(istring message, Location location, istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
-		_location = location;
-		super(message, file, line, next);
+@safe:
+
+	this(AssemblyLexer lexer) {
+		_lexer = lexer;
+		_empty = false;
+	}
+
+	AssemblyLexer wrappedLexer() inout => _lexer;
+
+	bool empty() const => _empty;
+
+	AssemblyToken front() inout => _lexer.front;
+
+	void popFront() {
+		_lexer.popFront();
+		this.skip();
+	}
+
+	private void skip() {
+		while (!_lexer.empty) {
+			switch (_lexer.front.type) {
+			case AssemblyToken.Type.comment:
+			case AssemblyToken.Type.whitespace:
+				break;
+
+			case AssemblyToken.Type.eof:
+			case AssemblyToken.Type.linebreak:
+				_empty = true;
+				return;
+
+			default:
+				return;
+			}
+
+			_lexer.popFront();
+		}
+
+		if (_lexer.empty) {
+			_empty = true;
+		}
+	}
+}
+
+class AssemblerUnexpectedTokenException : AssemblerException {
+	AssemblyToken.Type got;
+	const(AssemblyToken.Type)[] expected;
+
+	this(
+		AssemblyToken.Type got,
+		const(AssemblyToken.Type)[] expected,
+		Location location,
+		istring file = __FILE__, size_t line = __LINE__, Throwable next = null,
+	) @safe
+	in (expected.length >= 1) {
+		this.got = got;
+		this.expected = expected;
+
+		auto msg = appender!istring();
+		msg ~= "Unexpected `";
+		msg ~= got.to!istring();
+		msg ~= "` token, expected ";
+
+		const idxFinal = -1 + expected.length;
+		foreach (idx, expectedType; expected) {
+			if (idx > 1) {
+				msg ~= (idx == idxFinal) ? " or " : ", ";
+			}
+
+			msg ~= "`";
+			msg ~= expectedType.to!istring();
+			msg ~= "`";
+		}
+
+		msg ~= ".";
+
+		super(msg[], location, file, line, next);
+	}
+}
+
+class AssemblerBadArgumentCountException : AssemblerException {
+	ptrdiff_t got;
+	ptrdiff_t expectedMin;
+	ptrdiff_t expectedMax;
+	string instructionID;
+
+	this(
+		ptrdiff_t got,
+		ptrdiff_t expectedMin,
+		ptrdiff_t expectedMax,
+		string instructionID,
+		Location location,
+		istring file = __FILE__, size_t line = __LINE__, Throwable next = null,
+	) @safe {
+		this.got = got;
+		this.expectedMin = expectedMin;
+		this.expectedMax = expectedMax;
+		this.instructionID = instructionID;
+
+		istring msg;
+
+		if (expectedMin == expectedMax) {
+			msg = "Unexpected argument count for instruction `" ~ instructionID.idup ~ "`;"
+				~ " expected `" ~ expectedMin.to!istring() ~ "`,"
+				~ " got `" ~ got.to!istring() ~ "`.";
+		}
+		else {
+			msg = "Unexpected argument count for instruction `" ~ instructionID.idup ~ "`;"
+				~ " expected `" ~ expectedMin.to!istring() ~ "` .. `" ~ expectedMax.to!istring() ~ "`,"
+				~ " got `" ~ got.to!istring() ~ "`.";
+		}
+
+		super(msg, location, file, line, next);
+	}
+}
+
+struct AssemblyInstructionArgumentsParser {
+
+	// dfmt off
+	private enum State {
+		initial     = 0b_000,
+		instruction = 0b_011,
+		parameter   = 0b_100,
+		comma       = 0b_001,
+	}
+	// dfmt on
+
+	private {
+		AssemblyStatementLexer _lexer;
+		State _state = State.initial;
+		ptrdiff_t _argumentCount = -1;
+		AssemblyToken _instruction;
+	}
+
+@safe:
+
+	this(AssemblyStatementLexer lexer) {
+		_lexer = lexer;
+		this.skip();
+	}
+
+	this(AssemblyLexer lexer) {
+		this(AssemblyStatementLexer(lexer));
+	}
+
+	AssemblyLexer wrappedLexer() inout => _lexer.wrappedLexer;
+
+	bool empty() const => _lexer.empty;
+
+	AssemblyToken front() const => _lexer.front;
+
+	void popFront() {
+		_lexer.popFront();
+		this.skip();
+	}
+
+	private void skip() {
+		if (_lexer.empty) {
+			return;
+		}
+
+		if (_state == State.initial) {
+			if (_lexer.front.type != AssemblyToken.Type.identifier) {
+				const errorMsg = "Identifier expected, got `" ~ _lexer.front.type.to!istring() ~ "`.";
+				throw new AssemblerException(errorMsg, _lexer.front.location);
+			}
+
+			_state = State.instruction;
+			_argumentCount = 0;
+			_instruction = _lexer.front;
+
+			return this.popFront();
+		}
+
+		if ((_state & State.comma) > 0) {
+			switch (_lexer.front.type) {
+			case AssemblyToken.Type.identifier:
+			case AssemblyToken.Type.literalBoolean:
+			case AssemblyToken.Type.literalCharacter:
+			case AssemblyToken.Type.literalFloatingPoint:
+			case AssemblyToken.Type.literalInteger:
+			case AssemblyToken.Type.literalString:
+				_state = State.parameter;
+				++_argumentCount;
+				return;
+
+			default:
+				const errorMsg = "Identifier or literal expected, got `" ~ _lexer.front.type.to!istring() ~ "`.";
+				throw new AssemblerException(errorMsg, _lexer.front.location);
+			}
+		}
+
+		if (_state == State.parameter) {
+			if (_lexer.front.type != AssemblyToken.Type.comma) {
+				const errorMsg = "Comma expected, got `" ~ _lexer.front.type.to!istring() ~ "`.";
+				throw new AssemblerException(errorMsg, _lexer.front.location);
+			}
+
+			_state = State.comma;
+			return this.popFront();
+		}
+
+		throw new AssemblerException("Unexpected parser state.", _lexer.front.location);
+	}
+
+	void throwIfNotEmpty(ptrdiff_t expectedArgCountMin, ptrdiff_t expectedArgCountMax) {
+		if (this.empty) {
+			return;
+		}
+
+		ptrdiff_t count = 0;
+		foreach (tmp; this) {
+			++count;
+		}
+
+		const got = _argumentCount + count;
+
+		throw new AssemblerBadArgumentCountException(
+			got,
+			expectedArgCountMin,
+			expectedArgCountMax,
+			_instruction.data,
+			_instruction.location,
+		);
+	}
+
+	void throwIfEmpty(ptrdiff_t expectedArgCountMin, ptrdiff_t expectedArgCountMax) {
+		if (!this.empty) {
+			return;
+		}
+
+		const got = _argumentCount;
+
+		throw new AssemblerBadArgumentCountException(
+			got,
+			expectedArgCountMin,
+			expectedArgCountMax,
+			_instruction.data,
+			_instruction.location,
+		);
+	}
+
+	void throwIfUnexpectedTokenType(AssemblyToken.Type expected) {
+		if (this.front.type == expected) {
+			return;
+		}
+
+		const expectedTypes = [expected];
+		throw new AssemblerUnexpectedTokenException(this.front.type, expectedTypes, this.front.location);
 	}
 }
 
 struct Assembler {
 	import std.array : appender, Appender;
 
-	private struct Label {
+	private static struct Label {
 		string name;
 		size_t offset;
 	}
 
-	private struct State {
+	private static struct State {
 		Appender!(Instruction[]) ir;
 		Appender!(Label[]) labels;
 		Appender!(string[]) registers;
@@ -634,7 +987,18 @@ struct Assembler {
 		parseInstructionSwitch: switch (instructionName) {
 			static foreach (instruction; ISA.InstructionsSeq!()) {
 				case idOf!instruction:
-					instruction.parse(lexer, _state);
+					auto instrArgsParser = AssemblyInstructionArgumentsParser(lexer);
+					instruction.parse(instrArgsParser, _state);
+
+					if (!instrArgsParser.empty) {
+						assert(
+							false,
+							"Instruction `" ~ idOf!instruction ~ "`: "
+							~ "`parse()` did not consume all tokens provided by argument parser."
+						);
+					}
+
+					lexer = instrArgsParser.wrappedLexer;
 					break parseInstructionSwitch;
 			}
 
@@ -647,7 +1011,7 @@ struct Assembler {
 	private void parseStatement(ref Lexer lexer) {
 		switch (lexer.front.type) {
 		case Token.Type.error:
-			assert(false, "TODO");
+			throw new AssemblerException("Cannot parse erroneous token.", lexer.front.location);
 
 		case Token.Type.comment:
 		case Token.Type.eof:
@@ -661,7 +1025,11 @@ struct Assembler {
 			break;
 
 		default:
-			throw new AssemblerException("Unexpected token type.", lexer.front.location);
+			throw new AssemblerException(
+				"Unexpected token `" ~ lexer.front.data.idup ~ "`;"
+					~ "`" ~ lexer.front.type.to!istring() ~ "` has no association with a statement.",
+				lexer.front.location
+			);
 		}
 	}
 }
@@ -696,6 +1064,7 @@ struct ExitCode {
 	}
 
 	bool isSuccess() const => (_value == EXIT_SUCCESS);
+	bool isFailure() const => !isSuccess;
 
 	int get() const => _value;
 
@@ -1294,4 +1663,5 @@ version (MindyscriptEmulatorAppMain) {
 // int return
 @safe unittest {
 	assert(assemble("LDI a, 0\nRET a").executeSafe().isSuccess);
+	assert(assemble("LDI b, 1\nRET b").executeSafe().isFailure);
 }
