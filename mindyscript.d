@@ -1655,6 +1655,7 @@ version (MindyscriptEmulatorAppMain) {
 
 // void return
 @safe unittest {
+	assert(assemble("RET\r\n").executeSafe().isSuccess);
 	assert(assemble("RET\n").executeSafe().isSuccess);
 	assert(assemble("RET").executeSafe().isSuccess);
 
@@ -1665,7 +1666,9 @@ version (MindyscriptEmulatorAppMain) {
 // int return
 @safe unittest {
 	assert(assemble("LDI a, 0\nRET a").executeSafe().isSuccess);
+	assert(assemble("LDI a,0\nRET a").executeSafe().isSuccess);
 	assert(assemble("LDI b, 1\nRET b").executeSafe().isFailure);
+	assert(assemble("LDI b,1\nRET b").executeSafe().isFailure);
 }
 
 // add integers
