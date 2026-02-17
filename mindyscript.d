@@ -929,6 +929,9 @@ struct AssemblyInstructionArgumentsParser {
 
 	private void skip() {
 		if (_lexer.empty) {
+			if (_state == State.comma) {
+				throw new AssemblerException("Trailing comma.", _instruction.location);
+			}
 			return;
 		}
 
