@@ -293,6 +293,20 @@ struct ISA {
 		}
 	}
 
+	@Op("div")
+	struct DivideInstruction {
+		BinaryOperationRegisterIDs registerIDs;
+
+		void execute(Registers rg) const @safe {
+			executeOperator!"lhs / rhs"(rg, registerIDs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			const registerIDs = parseBinaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
+		}
+	}
+
 	@Op("ldi")
 	struct LoadImmediateInstruction {
 		RegisterID destination;
@@ -312,6 +326,34 @@ struct ISA {
 			argsParser.popFront();
 
 			state.ir ~= Instruction(LoadImmediateInstruction(registerDestination, valueToLoad));
+		}
+	}
+
+	@Op("mod")
+	struct ModuloInstruction {
+		BinaryOperationRegisterIDs registerIDs;
+
+		void execute(Registers rg) const @safe {
+			executeOperator!"lhs % rhs"(rg, registerIDs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			const registerIDs = parseBinaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
+		}
+	}
+
+	@Op("mul")
+	struct MultiplyInstruction {
+		BinaryOperationRegisterIDs registerIDs;
+
+		void execute(Registers rg) const @safe {
+			executeOperator!"lhs * rhs"(rg, registerIDs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			const registerIDs = parseBinaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
 		}
 	}
 
@@ -378,7 +420,7 @@ struct ISA {
 	}
 
 	@Op("sub")
-	struct SubInstruction {
+	struct SubtractInstruction {
 		BinaryOperationRegisterIDs registerIDs;
 
 		void execute(Registers rg) const @safe {
@@ -1861,4 +1903,22 @@ version (MindyscriptEmulatorAppMain) {
 @safe unittest {
 	assert(assemble("LDI a,7\nLDI b,4\nSUB c,a,b\nRET c").evaluateSafe().get!int == 3);
 	assert(assemble("LDI a,7\nLDI b,4\nSUB a,a,b\nRET a").evaluateSafe().get!int == 3);
+}
+
+// multiply integers
+@safe unittest {
+	assert(assemble("LDI a,7\nLDI b,4\nMUL c,a,b\nRET c").evaluateSafe().get!int == 28);
+	assert(assemble("LDI a,7\nLDI b,4\nMUL a,a,b\nRET a").evaluateSafe().get!int == 28);
+}
+
+// divide integers
+@safe unittest {
+	assert(assemble("LDI a,30\nLDI b,6\nDIV c,a,b\nRET c").evaluateSafe().get!int == 5);
+	assert(assemble("LDI a,30\nLDI b,6\nDIV a,a,b\nRET a").evaluateSafe().get!int == 5);
+}
+
+// reduce integers modulo
+@safe unittest {
+	assert(assemble("LDI a,32\nLDI b,10\nMOD c,a,b\nRET c").evaluateSafe().get!int == 2);
+	assert(assemble("LDI a,32\nLDI b,10\nMOD a,a,b\nRET a").evaluateSafe().get!int == 2);
 }
