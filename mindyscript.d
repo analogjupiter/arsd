@@ -308,6 +308,28 @@ struct ISA {
 		}
 	}
 
+	@Op("jal")
+	struct JumpAlwaysInstruction {
+		size_t programLocation;
+
+		void execute(ref size_t programCounter) const @safe {
+			programCounter = programLocation;
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.setupConstraints(1, 1);
+
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier, AssemblyToken.Type.literalInteger);
+
+			const labelID = argsParser.front.data;
+			const location = argsParser.front.location;
+			argsParser.popFront();
+
+			state.requestLabelForUpcomingInstruction(labelID, location);
+			state.ir ~= Instruction(typeof(this)(typeof(typeof(this)().programLocation).max));
+		}
+	}
+
 	@Op("ldi")
 	struct LoadImmediateInstruction {
 		RegisterID destination;
@@ -467,10 +489,10 @@ struct AssemblyToken {
 		whitespace,
 		linebreak,
 
+		colon,
 		comma,
 		comment,
 		identifier,
-		label,
 
 		literalBoolean,
 		literalCharacter,
@@ -604,7 +626,7 @@ struct AssemblyLexer {
 				continue;
 			}
 
-			if (c.isWhite || (c == ',')) {
+			if (c.isWhite || (c == ',') || (c == ':')) {
 				return idx;
 			}
 
@@ -752,6 +774,10 @@ struct AssemblyLexer {
 
 		case '0': .. case '9':
 			this.lexNumericLiteral();
+			break;
+
+		case ':':
+			this.makeToken(Token.Type.colon, 1);
 			break;
 
 		case 'A': .. case 'Z':
@@ -1056,46 +1082,20 @@ struct AssemblyInstructionArgumentsParser {
 		throw new AssemblerException("Unexpected parser state.", _lexer.front.location);
 	}
 
-	void throwIfNotEmpty(ptrdiff_t expectedArgCountMin, ptrdiff_t expectedArgCountMax) {
-		if (this.empty) {
-			return;
-		}
-
-		ptrdiff_t count = 0;
-		foreach (tmp; this) {
-			++count;
-		}
-
-		const got = _argumentCount + count;
-
-		throw new AssemblerBadArgumentCountException(
-			got,
-			expectedArgCountMin,
-			expectedArgCountMax,
-			_instruction.data,
-			_instruction.location,
-		);
-	}
-
-	void throwIfEmpty(ptrdiff_t expectedArgCountMin, ptrdiff_t expectedArgCountMax) {
-		if (!this.empty) {
-			return;
-		}
-
-		const got = _argumentCount;
-
-		throw new AssemblerBadArgumentCountException(
-			got,
-			expectedArgCountMin,
-			expectedArgCountMax,
-			_instruction.data,
-			_instruction.location,
-		);
-	}
-
 	void throwIfUnexpectedTokenType(AssemblyToken.Type expected) {
 		if (this.front.type == expected) {
 			return;
+		}
+
+		const expectedTypes = [expected];
+		throw new AssemblerUnexpectedTokenException(this.front.type, expectedTypes, this.front.location);
+	}
+
+	void throwIfUnexpectedTokenType(Types...)(Types expected) if (allSatisfy!((T) =>  is(T == AssemblyToken.Type))) {
+		static foreach (expectedType; expected) {
+			if (this.front.type == expectedType) {
+				return;
+			}
 		}
 
 		const expectedTypes = [expected];
@@ -1107,14 +1107,34 @@ struct Assembler {
 	import std.array : appender, Appender;
 
 	private static struct Label {
-		string name;
+		string identifier;
 		size_t offset;
+	}
+
+	private static struct LabelPromise {
+		size_t irIdx;
+		string identifier;
+		Location location;
 	}
 
 	private static struct State {
 		Appender!(Instruction[]) ir;
-		Appender!(Label[]) labels;
+		Label[string] labels;
+		Appender!(LabelPromise[]) labelPromises;
 		Appender!(string[]) registers;
+
+	@safe:
+
+		void addLabelForUpcomingInstruction(string identifier, const Location location) {
+			const label = identifier in labels;
+
+			if (label !is null) {
+				const msg = "Duplicate label `" ~ identifier.idup ~ "`.";
+				throw new AssemblerException(msg, location);
+			}
+
+			labels[identifier] = Label(identifier, ir.length);
+		}
 
 		RegisterID addOrResolveRegister(string identifier) @safe {
 			foreach (RegisterID idx, string knownRegister; registers[]) {
@@ -1125,6 +1145,36 @@ struct Assembler {
 
 			registers ~= identifier;
 			return -1 + registers.length;
+		}
+
+		void requestLabelForUpcomingInstruction(string identifier, const Location location) {
+			labelPromises ~= LabelPromise(ir.length, identifier, location);
+		}
+
+		const(Label) resolveLabel(string identifier, const Location location) {
+			const label = identifier in labels;
+
+			if (label is null) {
+				const msg = "Cannot resolve label `" ~ identifier.idup ~ "`: Not found.";
+				throw new AssemblerException(msg, location);
+			}
+
+			return *label;
+		}
+
+		void resolveLabelPromises() {
+			foreach (LabelPromise labelPromise; labelPromises) {
+				const label = this.resolveLabel(labelPromise.identifier, labelPromise.location);
+				ir[][labelPromise.irIdx].match!((ref instruction) {
+					static if (__traits(hasMember, instruction, "programLocation")) {
+						instruction.programLocation = label.offset;
+					}
+					else {
+						enum msg = "Unsupported instruction type `" ~ typeof(instruction).stringof ~ "` for label promise.";
+						assert(false, msg);
+					}
+				});
+			}
 		}
 	}
 
@@ -1144,7 +1194,8 @@ struct Assembler {
 
 	Program assemble(AssemblyLexer lexer) {
 		_state.ir = appender!(Instruction[])();
-		_state.labels = appender!(Label[])();
+		_state.labels = null;
+		_state.labelPromises = appender!(LabelPromise[]);
 		_state.registers = appender!(string[])();
 
 		// shebang handling
@@ -1157,6 +1208,8 @@ struct Assembler {
 		while (!lexer.empty) {
 			parseStatement(lexer);
 		}
+
+		_state.resolveLabelPromises();
 
 		return Program(_state.ir[], _state.registers.length);
 	}
@@ -1191,6 +1244,35 @@ struct Assembler {
 		// dfmt on
 	}
 
+	private void parseLabel(ref Lexer lexer) {
+		const token = lexer.front;
+		lexer.popFront();
+		lexer.popWhitespace();
+
+		if (lexer.empty || (lexer.front.type != Token.Type.colon)) {
+			assert(false, "Invalid label");
+		}
+		lexer.popFront();
+
+		const identifier = token.data;
+		_state.addLabelForUpcomingInstruction(identifier, token.location);
+	}
+
+	private void parseIdentifierConstruct(ref Lexer lexer) {
+		auto lexerCopy = lexer;
+		lexerCopy.popFront();
+		lexerCopy.popWhitespace();
+
+		if (!lexerCopy.empty) {
+			if (lexerCopy.front.type == AssemblyToken.Type.colon) {
+				this.parseLabel(lexer);
+				return;
+			}
+		}
+
+		this.parseInstruction(lexer);
+	}
+
 	private void parseStatement(ref Lexer lexer) {
 		switch (lexer.front.type) {
 		case Token.Type.error:
@@ -1204,7 +1286,7 @@ struct Assembler {
 			break;
 
 		case Token.Type.identifier:
-			parseInstruction(lexer);
+			this.parseIdentifierConstruct(lexer);
 			break;
 
 		default:
@@ -1507,6 +1589,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 			// dfmt off
 			fetchedInstruction.match!(
+				(ISA.JumpAlwaysInstruction jal) { jal.execute(programCounter); --programCounter; },
 				(ISA.NoOpInstruction nop) { nop.execute(); },
 				(ISA.ReturnInstruction ret) {
 					returnValue = ret.execute(stackFrame.data);
@@ -1929,4 +2012,11 @@ version (MindyscriptEmulatorAppMain) {
 	assert((assemble("LDI a,5.0\nLDI b,2.5\nMUL c,a,b\nRET c").evaluateSafe().get!float * 10).round() == 125);
 	assert((assemble("LDI a,7.0\nLDI b,2.0\nDIV c,a,b\nRET c").evaluateSafe().get!float * 10).round() == 35);
 	assert(assemble("LDI a,8.0\nLDI b,3.0\nMOD c,a,b\nRET c").evaluateSafe().get!float.round() == 2);
+}
+
+// jumps
+@safe unittest {
+	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL target\nRET a\ntarget:RET b\nRET c").evaluateSafe().get!int == 2);
+	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL target\nRET a\ntarget: RET b\nRET c").evaluateSafe().get!int == 2);
+	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL target\nRET a\ntarget:\nRET b\nRET c").evaluateSafe().get!int == 2);
 }
