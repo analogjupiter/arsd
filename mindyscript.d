@@ -310,10 +310,10 @@ struct ISA {
 
 	@Op("jal")
 	struct JumpAlwaysInstruction {
-		size_t programLocation;
+		size_t targetOffset;
 
 		void execute(ref size_t programCounter) const @safe {
-			programCounter = programLocation;
+			programCounter = targetOffset;
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
@@ -321,12 +321,29 @@ struct ISA {
 
 			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier, AssemblyToken.Type.literalInteger);
 
-			const labelID = argsParser.front.data;
-			const location = argsParser.front.location;
-			argsParser.popFront();
+			if (argsParser.front.type == AssemblyToken.Type.identifier) {
+				const labelID = argsParser.front.data;
+				const location = argsParser.front.location;
+				argsParser.popFront();
 
-			state.requestLabelForUpcomingInstruction(labelID, location);
-			state.ir ~= Instruction(typeof(this)(typeof(typeof(this)().programLocation).max));
+				state.requestLabelForUpcomingInstruction(labelID, location);
+				state.ir ~= Instruction(typeof(this)(typeof(typeof(this)().targetOffset).max));
+				return;
+			}
+
+			if (argsParser.front.type == AssemblyToken.Type.literalInteger) {
+				const value = parseLiteral(argsParser.front).get!int;
+				if (value < 0) {
+					static immutable msg = "Invalid target offset: Cannot be negative.";
+					throw new AssemblerException(msg, argsParser.front.location);
+				}
+
+				argsParser.popFront();
+				state.ir ~= Instruction(typeof(this)(value));
+				return;
+			}
+
+			assert(false, "unreachable");
 		}
 	}
 
@@ -1166,8 +1183,8 @@ struct Assembler {
 			foreach (LabelPromise labelPromise; labelPromises) {
 				const label = this.resolveLabel(labelPromise.identifier, labelPromise.location);
 				ir[][labelPromise.irIdx].match!((ref instruction) {
-					static if (__traits(hasMember, instruction, "programLocation")) {
-						instruction.programLocation = label.offset;
+					static if (__traits(hasMember, instruction, "targetOffset")) {
+						instruction.targetOffset = label.offset;
 					}
 					else {
 						enum msg = "Unsupported instruction type `" ~ typeof(instruction).stringof ~ "` for label promise.";
@@ -1574,7 +1591,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 		return true;
 	}
 
-	ReturnValue execute(Program program) {
+	ReturnValue execute(const Program program) {
 		this.initializeMachine();
 
 		Stack.Frame stackFrame = _stack.push(program.registerCount);
@@ -1584,12 +1601,12 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 		ReturnValue returnValue = ReturnValue(VMVoid());
 
-		for (size_t programCounter = 0; programCounter < program.ir.length; ++programCounter) {
-			const fetchedInstruction = program.ir[programCounter];
-
-			// dfmt off
-			fetchedInstruction.match!(
-				(ISA.JumpAlwaysInstruction jal) { jal.execute(programCounter); --programCounter; },
+		enum decodeAndExecuteImpl = q{
+			alias decodeAndExecute = std.sumtype.match!(
+				(ISA.JumpAlwaysInstruction jal) {
+					jal.execute(programCounter);
+					fetchDecodeAndExecute(programCounter);
+				},
 				(ISA.NoOpInstruction nop) { nop.execute(); },
 				(ISA.ReturnInstruction ret) {
 					returnValue = ret.execute(stackFrame.data);
@@ -1597,7 +1614,25 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 				},
 				(decodedInstruction) { decodedInstruction.execute(stackFrame.data); },
 			);
-			// dfmt on
+		};
+
+		static if (memorySafety == MemorySafety.safe) {
+			void fetchDecodeAndExecute(ref size_t programCounter) @safe {
+				const fetchedInstruction = program.ir[programCounter];
+				mixin(decodeAndExecuteImpl);
+				decodeAndExecute(fetchedInstruction);
+			}
+		}
+		else {
+			void fetchDecodeAndExecute(ref size_t programCounter) {
+				const fetchedInstruction = program.ir[programCounter];
+				mixin(decodeAndExecuteImpl);
+				decodeAndExecute(fetchedInstruction);
+			}
+		}
+
+		for (size_t programCounter = 0; programCounter < program.ir.length; ++programCounter) {
+			fetchDecodeAndExecute(programCounter);
 		}
 
 		return returnValue;
@@ -2019,4 +2054,5 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL target\nRET a\ntarget:RET b\nRET c").evaluateSafe().get!int == 2);
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL target\nRET a\ntarget: RET b\nRET c").evaluateSafe().get!int == 2);
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL target\nRET a\ntarget:\nRET b\nRET c").evaluateSafe().get!int == 2);
+	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL 5\nRET a\nRET b\nRET c").evaluateSafe().get!int == 2);
 }
