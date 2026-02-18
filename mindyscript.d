@@ -1557,7 +1557,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 		return initializeMachineForced();
 	}
 
-	ExitCode boot(Program main) {
+	ExitCode boot(const Program main) {
 		ReturnValue result = this.execute(main);
 		// dfmt off
 		return result.match!(
@@ -1646,12 +1646,12 @@ Program assemble(string sourceCode, string sourceFile = null) @safe {
 	return assembler.assemble(sourceCode, sourceFile);
 }
 
-ReturnValue execute(MemorySafety memorySafety = MemorySafety.system)(Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
+ReturnValue execute(MemorySafety memorySafety = MemorySafety.system)(const Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
 	auto vm = new VirtualMachine!memorySafety(settings);
 	return vm.execute(program);
 }
 
-Variable evaluate(MemorySafety memorySafety = MemorySafety.system)(Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
+Variable evaluate(MemorySafety memorySafety = MemorySafety.system)(const Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
 	auto returnValue = execute!memorySafety(program, settings);
 	return returnValue.match!(
 		(Variable var) => var,
@@ -1659,7 +1659,7 @@ Variable evaluate(MemorySafety memorySafety = MemorySafety.system)(Program progr
 	);
 }
 
-ExitCode boot(MemorySafety memorySafety = MemorySafety.system)(Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
+ExitCode boot(MemorySafety memorySafety = MemorySafety.system)(const Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
 	auto vm = new VirtualMachine!memorySafety(settings);
 	return vm.boot(program);
 }
