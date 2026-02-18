@@ -1892,33 +1892,26 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI b,1\nRET b").bootSafe().isFailure);
 }
 
-// add integers
+// integer arithmetic
 @safe unittest {
+	// add integers
 	assert(assemble("LDI a,4\nLDI b,3\nADD c,a,b\nRET c").evaluateSafe().get!int == 7);
 	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nRET a").evaluateSafe().get!int == 7);
 	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nADD a,a,b\nRET a").evaluateSafe().get!int == 10);
-}
 
-// subtract integers
-@safe unittest {
+	// subtract integers
 	assert(assemble("LDI a,7\nLDI b,4\nSUB c,a,b\nRET c").evaluateSafe().get!int == 3);
 	assert(assemble("LDI a,7\nLDI b,4\nSUB a,a,b\nRET a").evaluateSafe().get!int == 3);
-}
 
-// multiply integers
-@safe unittest {
+	// multiply integers
 	assert(assemble("LDI a,7\nLDI b,4\nMUL c,a,b\nRET c").evaluateSafe().get!int == 28);
 	assert(assemble("LDI a,7\nLDI b,4\nMUL a,a,b\nRET a").evaluateSafe().get!int == 28);
-}
 
-// divide integers
-@safe unittest {
+	// divide integers
 	assert(assemble("LDI a,30\nLDI b,6\nDIV c,a,b\nRET c").evaluateSafe().get!int == 5);
 	assert(assemble("LDI a,30\nLDI b,6\nDIV a,a,b\nRET a").evaluateSafe().get!int == 5);
-}
 
-// reduce integers modulo
-@safe unittest {
+	// reduce integers modulo
 	assert(assemble("LDI a,32\nLDI b,10\nMOD c,a,b\nRET c").evaluateSafe().get!int == 2);
 	assert(assemble("LDI a,32\nLDI b,10\nMOD a,a,b\nRET a").evaluateSafe().get!int == 2);
 }
