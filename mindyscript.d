@@ -280,6 +280,8 @@ struct ISA {
 		istring id;
 	}
 
+	private struct Jump;
+
 	@Op("add")
 	struct AddInstruction {
 		BinaryOperationRegisterIDs registerIDs;
@@ -309,6 +311,7 @@ struct ISA {
 	}
 
 	@Op("jal")
+	@Jump
 	struct JumpAlwaysInstruction {
 		size_t targetOffset;
 
@@ -1603,16 +1606,23 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 		enum decodeAndExecuteImpl = q{
 			alias decodeAndExecute = std.sumtype.match!(
-				(ISA.JumpAlwaysInstruction jal) {
-					jal.execute(programCounter);
-					fetchDecodeAndExecute(programCounter);
-				},
 				(ISA.NoOpInstruction nop) { nop.execute(); },
 				(ISA.ReturnInstruction ret) {
 					returnValue = ret.execute(stackFrame.data);
 					programCounter = program.ir.length; // break program execution loop
 				},
-				(decodedInstruction) { decodedInstruction.execute(stackFrame.data); },
+				(decodedInstruction) {
+					import std.traits : hasUDA;
+
+					alias InstructionType = typeof(decodedInstruction);
+					static if (hasUDA!(InstructionType, ISA.Jump)) {
+						decodedInstruction.execute(programCounter);
+						fetchDecodeAndExecute(programCounter);
+					}
+					else {
+						decodedInstruction.execute(stackFrame.data);
+					}
+				},
 			);
 		};
 
