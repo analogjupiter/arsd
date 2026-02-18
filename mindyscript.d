@@ -23,6 +23,7 @@ module arsd.mindyscript;
 
 import std.array : appender;
 import std.conv : to;
+import std.math : round;
 import std.meta;
 static import std.sumtype;
 static import std.typecons;
@@ -1914,4 +1915,18 @@ version (MindyscriptEmulatorAppMain) {
 	// reduce integers modulo
 	assert(assemble("LDI a,32\nLDI b,10\nMOD c,a,b\nRET c").evaluateSafe().get!int == 2);
 	assert(assemble("LDI a,32\nLDI b,10\nMOD a,a,b\nRET a").evaluateSafe().get!int == 2);
+}
+
+// floating-point arithmetic
+@safe unittest {
+	assert(assemble("LDI a,4.1\nLDI b,3.0\nADD c,a,b\nRET c").evaluateSafe().get!float.round() == 7);
+	assert(assemble("LDI a,4.1\nLDI b,3.0\nADD a,a,b\nRET a").evaluateSafe().get!float.round() == 7);
+	assert(assemble("LDI a,4  \nLDI b,3.0\nADD c,a,b\nRET c").evaluateSafe().get!float.round() == 7);
+	assert(assemble("LDI a,4.0\nLDI b,3  \nADD c,a,b\nRET c").evaluateSafe().get!float.round() == 7);
+
+	assert(assemble("LDI a,4.9\nLDI b,3.1\nSUB c,a,b\nRET c").evaluateSafe().get!float.round() == 2);
+
+	assert((assemble("LDI a,5.0\nLDI b,2.5\nMUL c,a,b\nRET c").evaluateSafe().get!float * 10).round() == 125);
+	assert((assemble("LDI a,7.0\nLDI b,2.0\nDIV c,a,b\nRET c").evaluateSafe().get!float * 10).round() == 35);
+	assert(assemble("LDI a,8.0\nLDI b,3.0\nMOD c,a,b\nRET c").evaluateSafe().get!float.round() == 2);
 }
