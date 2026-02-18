@@ -32,7 +32,9 @@ static import std.typecons;
 private {
 	alias string = const(char)[];
 	alias istring = object.string;
+
 	alias match = std.sumtype.match;
+	alias get = std.sumtype.get;
 }
 
 abstract class MindyscriptException : Exception {
@@ -1263,6 +1265,12 @@ final class InvalidSettingException : VirtualMachineException {
 	}
 }
 
+final class VoidResultException : VirtualMachineException {
+	this(istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
+		super("The result of the evaluated expression is `void`.", file, line, next);
+	}
+}
+
 struct StackSettings {
 	size_t sizeDefault = 4096;
 	size_t sizeIncrements = 2048;
@@ -1477,13 +1485,28 @@ Program assemble(string sourceCode, string sourceFile = null) @safe {
 	return assembler.assemble(sourceCode, sourceFile);
 }
 
-ExitCode execute(MemorySafety memorySafety = MemorySafety.system)(Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
+ReturnValue execute(MemorySafety memorySafety = MemorySafety.system)(Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
+	auto vm = new VirtualMachine!memorySafety(settings);
+	return vm.execute(program);
+}
+
+Variable evaluate(MemorySafety memorySafety = MemorySafety.system)(Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
+	auto returnValue = execute!memorySafety(program, settings);
+	return returnValue.match!(
+		(Variable var) => var,
+		(VMVoid void_) => throw new VoidResultException(),
+	);
+}
+
+ExitCode boot(MemorySafety memorySafety = MemorySafety.system)(Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
 	auto vm = new VirtualMachine!memorySafety(settings);
 	return vm.boot(program);
 }
 
 version (unittest) {
 	private alias executeSafe = execute!(MemorySafety.safe);
+	private alias evaluateSafe = evaluate!(MemorySafety.safe);
+	private alias bootSafe = boot!(MemorySafety.safe);
 }
 
 @safe unittest {
@@ -1491,6 +1514,12 @@ version (unittest) {
 
 	alias executeSafe = execute!(MemorySafety.safe);
 	static assert(isSafe!(executeSafe));
+
+	alias evaluateSafe = evaluate!(MemorySafety.safe);
+	static assert(isSafe!(evaluateSafe));
+
+	alias bootSafe = boot!(MemorySafety.safe);
+	static assert(isSafe!(bootSafe));
 }
 
 // === Emulator CLI App ========================================================
@@ -1785,51 +1814,51 @@ version (MindyscriptEmulatorAppMain) {
 
 // empty file
 @safe unittest {
-	assert(assemble("").executeSafe().isSuccess);
-	assert(assemble("\n").executeSafe().isSuccess);
-	assert(assemble("\r\n").executeSafe().isSuccess);
+	assert(assemble("").bootSafe().isSuccess);
+	assert(assemble("\n").bootSafe().isSuccess);
+	assert(assemble("\r\n").bootSafe().isSuccess);
 }
 
 // shebang
 @safe unittest {
-	assert(assemble("#!/usr/bin/env -S mindyscript --asm").executeSafe().isSuccess);
-	assert(assemble("#!/usr/bin/env -S mindyscript --asm\n").executeSafe().isSuccess);
-	assert(assemble("#!/usr/bin/env -S mindyscript --asm\r\n").executeSafe().isSuccess);
-	assert(assemble("#!/usr/bin/env -S mindyscript --asm\nRET\n").executeSafe().isSuccess);
+	assert(assemble("#!/usr/bin/env -S mindyscript --asm").bootSafe().isSuccess);
+	assert(assemble("#!/usr/bin/env -S mindyscript --asm\n").bootSafe().isSuccess);
+	assert(assemble("#!/usr/bin/env -S mindyscript --asm\r\n").bootSafe().isSuccess);
+	assert(assemble("#!/usr/bin/env -S mindyscript --asm\nRET\n").bootSafe().isSuccess);
 }
 
 // no-op
 @safe unittest {
-	assert(assemble("NOP\nNOP\nNOP\nNOP\n").executeSafe().isSuccess);
+	assert(assemble("NOP\nNOP\nNOP\nNOP\n").bootSafe().isSuccess);
 }
 
 // void return
 @safe unittest {
-	assert(assemble("RET\r\n").executeSafe().isSuccess);
-	assert(assemble("RET\n").executeSafe().isSuccess);
-	assert(assemble("RET").executeSafe().isSuccess);
+	assert(assemble("RET\r\n").bootSafe().isSuccess);
+	assert(assemble("RET\n").bootSafe().isSuccess);
+	assert(assemble("RET").bootSafe().isSuccess);
 
 	// case-insensitive
-	assert(assemble("ret\n").executeSafe().isSuccess);
+	assert(assemble("ret\n").bootSafe().isSuccess);
 }
 
 // int return
 @safe unittest {
-	assert(assemble("LDI a, 0\nRET a").executeSafe().isSuccess);
-	assert(assemble("LDI a,0\nRET a").executeSafe().isSuccess);
-	assert(assemble("LDI b, 1\nRET b").executeSafe().isFailure);
-	assert(assemble("LDI b,1\nRET b").executeSafe().isFailure);
+	assert(assemble("LDI a, 0\nRET a").bootSafe().isSuccess);
+	assert(assemble("LDI a,0\nRET a").bootSafe().isSuccess);
+	assert(assemble("LDI b, 1\nRET b").bootSafe().isFailure);
+	assert(assemble("LDI b,1\nRET b").bootSafe().isFailure);
 }
 
 // add integers
 @safe unittest {
-	assert(assemble("LDI a,4\nLDI b,3\nADD c,a,b\nRET c").executeSafe().value == 7);
-	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nRET a").executeSafe().value == 7);
-	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nADD a,a,b\nRET a").executeSafe().value == 10);
+	assert(assemble("LDI a,4\nLDI b,3\nADD c,a,b\nRET c").evaluateSafe().get!int == 7);
+	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nRET a").evaluateSafe().get!int == 7);
+	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nADD a,a,b\nRET a").evaluateSafe().get!int == 10);
 }
 
 // subtract integers
 @safe unittest {
-	assert(assemble("LDI a,7\nLDI b,4\nSUB c,a,b\nRET c").executeSafe().value == 3);
-	assert(assemble("LDI a,7\nLDI b,4\nSUB a,a,b\nRET a").executeSafe().value == 3);
+	assert(assemble("LDI a,7\nLDI b,4\nSUB c,a,b\nRET c").evaluateSafe().get!int == 3);
+	assert(assemble("LDI a,7\nLDI b,4\nSUB a,a,b\nRET a").evaluateSafe().get!int == 3);
 }
