@@ -1604,7 +1604,10 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 		ReturnValue returnValue = ReturnValue(VMVoid());
 
-		enum decodeAndExecuteImpl = q{
+		void fetchDecodeAndExecute(ref size_t programCounter) {
+			const fetchedInstruction = program.ir[programCounter];
+
+			// dfmt off
 			alias decodeAndExecute = std.sumtype.match!(
 				(ISA.NoOpInstruction nop) { nop.execute(); },
 				(ISA.ReturnInstruction ret) {
@@ -1617,28 +1620,16 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 					alias InstructionType = typeof(decodedInstruction);
 					static if (hasUDA!(InstructionType, ISA.Jump)) {
 						decodedInstruction.execute(programCounter);
-						fetchDecodeAndExecute(programCounter);
+						--programCounter; // compensate scheduled increment
 					}
 					else {
 						decodedInstruction.execute(stackFrame.data);
 					}
 				},
 			);
-		};
+			// dfmt on
 
-		static if (memorySafety == MemorySafety.safe) {
-			void fetchDecodeAndExecute(ref size_t programCounter) @safe {
-				const fetchedInstruction = program.ir[programCounter];
-				mixin(decodeAndExecuteImpl);
-				decodeAndExecute(fetchedInstruction);
-			}
-		}
-		else {
-			void fetchDecodeAndExecute(ref size_t programCounter) {
-				const fetchedInstruction = program.ir[programCounter];
-				mixin(decodeAndExecuteImpl);
-				decodeAndExecute(fetchedInstruction);
-			}
+			decodeAndExecute(fetchedInstruction);
 		}
 
 		for (size_t programCounter = 0; programCounter < program.ir.length; ++programCounter) {
