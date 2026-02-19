@@ -778,25 +778,47 @@ struct AssemblyToken {
 		literalString,
 	}
 
+	// dfmt off
+	enum Flag {
+		none            = 0,
+		negative        = 0b_0000_0001,
+		base2           = 0b_0000_0010,
+		base16          = 0b_0000_0100,
+	}
+	// dfmt on
+
 	Type type;
 	string data;
 	Location location;
+	Flag flags;
 }
 
 Variable parseLiteral(AssemblyToken token) @safe {
+	alias Token = AssemblyToken;
+	alias Flag = Token.Flag;
+
 	try {
 		switch (token.type) {
-		case AssemblyToken.Type.literalBoolean:
+		case Token.Type.literalBoolean:
 			return parseLiteral!bool(token.data);
 
-		case AssemblyToken.Type.literalCharacter:
+		case Token.Type.literalCharacter:
 			return parseLiteral!char(token.data[1 .. 2]);
 
-		case AssemblyToken.Type.literalFloatingPoint:
+		case Token.Type.literalFloatingPoint:
 			return parseLiteral!float(token.data);
 
-		case AssemblyToken.Type.literalInteger:
+		case Token.Type.literalInteger:
+			// dfmt off
+			const isHex = ((token.flags & Flag.base16) == Flag.base16);
+			if (isHex) {
+				const isNegative = ((token.flags & Flag.negative) == Flag.negative);
+				return (isNegative)
+					? Variable(-token.data[3 .. $].to!int(16))
+					: Variable( token.data[2 .. $].to!int(16));
+			}
 			return parseLiteral!int(token.data);
+			// dfmt on
 
 		case AssemblyToken.Type.literalString:
 			// TODO: implement
@@ -876,7 +898,14 @@ struct AssemblyLexer {
 
 	private void makeToken(Token.Type type, size_t length) {
 		const location = this.makeLocation();
-		_front = Token(type, _source[0 .. length], location);
+		_front = Token(type, _source[0 .. length], location, Token.Flag.none);
+		_source = _source[length .. $];
+		_offset += length;
+	}
+
+	private void makeToken(Token.Type type, size_t length, Token.Flag flags) {
+		const location = this.makeLocation();
+		_front = Token(type, _source[0 .. length], location, flags);
 		_source = _source[length .. $];
 		_offset += length;
 	}
@@ -928,14 +957,13 @@ struct AssemblyLexer {
 		this.makeToken(type, length);
 	}
 
-	private void lexDecimalLiteral() {
+	private void lexDecimalLiteral(bool negativeNumber) {
+		const scanOffset = (negativeNumber) ? 1 : 0;
+		const flags = (negativeNumber) ? Token.Flag.negative : Token.Flag.none;
+
 		bool floatingPoint = false;
 
-		foreach (size_t idx, char c; _source) {
-			if ((c == '-') && (idx == 0)) {
-				continue;
-			}
-
+		foreach (size_t idx, char c; _source[scanOffset .. $]) {
 			if (c.isDigit || c == '_') {
 				continue;
 			}
@@ -944,7 +972,7 @@ struct AssemblyLexer {
 				if (floatingPoint) {
 					throw new AssemblyLexerException(
 						"Duplicate decimal point in numeric literal.",
-						this.makeLocation(idx),
+						this.makeLocation(idx + scanOffset),
 					);
 				}
 
@@ -954,26 +982,56 @@ struct AssemblyLexer {
 
 			if (c.isWhite) {
 				const type = (floatingPoint) ? Token.Type.literalFloatingPoint : Token.Type.literalInteger;
-				return makeToken(type, idx);
+				return makeToken(type, (idx + scanOffset), flags);
 			}
 
 			throw new AssemblyLexerException(
 				"Unexpected character in numeric literal.",
-				this.makeLocation(idx),
+				this.makeLocation(idx + scanOffset),
 			);
 		}
 
 		const type = (floatingPoint) ? Token.Type.literalFloatingPoint : Token.Type.literalInteger;
-		return makeToken(type, _source.length);
+		return makeToken(type, _source.length, flags);
+	}
+
+	private void lexHexLiteral(bool negativeNumber) {
+		// skip "0x"/"-0x" prefix
+		const scanOffset = (negativeNumber) ? 3 : 2;
+
+		// dfmt off
+		const flags = (negativeNumber)
+			? Token.Flag.base16 | Token.Flag.negative
+			: Token.Flag.base16;
+		// dfmt on
+
+		foreach (size_t idx, char c; _source[scanOffset .. $]) {
+			if (c.isHexDigit || c == '_') {
+				continue;
+			}
+
+			if (c == '.') {
+				throw new AssemblyLexerException(
+					"Hexadecimal floating-point literals are not supported.",
+					this.makeLocation(idx + scanOffset)
+				);
+			}
+
+			return makeToken(Token.Type.literalInteger, (idx + scanOffset), flags);
+		}
+
+		return makeToken(Token.Type.literalInteger, _source.length, flags);
 	}
 
 	private void lexNumericLiteral() {
-		const size_t offset = (_source[0] == '-') ? 1 : 0;
+		const negativeNumber = (_source[0] == '-');
+		const scanOffset = (negativeNumber) ? 1 : 0;
 
-		if ((_source[offset] == '0') && (_source.length >= 2)) {
-			const second = _source[offset + 1];
+		if ((_source[scanOffset] == '0') && (_source.length >= 2)) {
+			const second = _source[scanOffset + 1];
+
 			if (second == 'x') {
-				// TODO: hex literals
+				return this.lexHexLiteral(negativeNumber);
 			}
 
 			if (second == 'b') {
@@ -989,7 +1047,7 @@ struct AssemblyLexer {
 			}
 		}
 
-		return this.lexDecimalLiteral();
+		return this.lexDecimalLiteral(negativeNumber);
 	}
 
 	private void lexWhitespace() {
@@ -2291,6 +2349,27 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI a,0\nRET a").bootSafe().isSuccess);
 	assert(assemble("LDI b, 1\nRET b").bootSafe().isFailure);
 	assert(assemble("LDI b,1\nRET b").bootSafe().isFailure);
+}
+
+// literals
+@safe unittest {
+	// boolean literals
+	assert(assemble("LDI x,false\nRET x").evaluateSafe().get!bool == false);
+	assert(assemble("LDI x,true\nRET x").evaluateSafe().get!bool == true);
+
+	// integer literals
+	assert(assemble("LDI x,7\nRET x").evaluateSafe().get!int == 7);
+	assert(assemble("LDI x,-7\nRET x").evaluateSafe().get!int == -7);
+
+	// hexadecimal integer literals
+	assert(assemble("LDI x,0x7\nRET x").evaluateSafe().get!int == 0x7);
+	assert(assemble("LDI x,0x07\nRET x").evaluateSafe().get!int == 0x07);
+	assert(assemble("LDI x,0x77\nRET x").evaluateSafe().get!int == 0x77);
+	assert(assemble("LDI x,-0x77\nRET x").evaluateSafe().get!int == -0x77);
+
+	// floating-point literals
+	assert(assemble("LDI x,7.0\nRET x").evaluateSafe().get!float == 7.0f);
+	assert(assemble("LDI x,-7.0\nRET x").evaluateSafe().get!float == -7.0f);
 }
 
 // move
