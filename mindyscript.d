@@ -224,6 +224,17 @@ alias RegisterID = size_t;
 
 alias Registers = Variable[];
 
+struct BinaryOperationRegisterIDs {
+	/// Destination register
+	RegisterID dst;
+
+	/// Left-hand side register
+	RegisterID lhs;
+
+	/// Right-hand side register
+	RegisterID rhs;
+}
+
 private pragma(inline, true) void executeOperator(string op)(
 	Registers registers,
 	BinaryOperationRegisterIDs registerIDs,
@@ -234,17 +245,6 @@ private pragma(inline, true) void executeOperator(string op)(
 		(lhs, typeof(null) rhs) { registers[registerIDs.dst] = null; },
 		(lhs, rhs) { registers[registerIDs.dst] = mixin(op); },
 	)(registers[registerIDs.lhs], registers[registerIDs.rhs]);
-}
-
-struct BinaryOperationRegisterIDs {
-	/// Destination register
-	RegisterID dst;
-
-	/// Left-hand side register
-	RegisterID lhs;
-
-	/// Right-hand side register
-	RegisterID rhs;
 }
 
 private BinaryOperationRegisterIDs parseBinaryOperation(
@@ -1609,7 +1609,9 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 			// dfmt off
 			alias decodeAndExecute = std.sumtype.match!(
-				(ISA.NoOpInstruction nop) { nop.execute(); },
+				(ISA.NoOpInstruction nop) {
+					nop.execute();
+				},
 				(ISA.ReturnInstruction ret) {
 					returnValue = ret.execute(stackFrame.data);
 					programCounter = program.ir.length; // break program execution loop
