@@ -1126,6 +1126,8 @@ struct AssemblyInstructionArgumentsParser {
 	}
 	// dfmt on
 
+	private enum isAssemblyTokenType(T) = is(T == AssemblyToken.Type);
+
 	private {
 		AssemblyStatementLexer _lexer;
 
@@ -1265,7 +1267,7 @@ struct AssemblyInstructionArgumentsParser {
 		throw new AssemblerUnexpectedTokenException(this.front.type, expectedTypes, this.front.location);
 	}
 
-	void throwIfUnexpectedTokenType(Types...)(Types expected) if (allSatisfy!((T) =>  is(T == AssemblyToken.Type))) {
+	void throwIfUnexpectedTokenType(Types...)(Types expected) if (allSatisfy!(isAssemblyTokenType, Types)) {
 		static foreach (expectedType; expected) {
 			if (this.front.type == expectedType) {
 				return;
