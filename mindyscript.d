@@ -473,6 +473,22 @@ struct ISA {
 		}
 	}
 
+	@Op("jneq")
+	@Jump
+	struct JumpIfNotEqual {
+		size_t targetLocation;
+		RegisterID lhs;
+		RegisterID rhs;
+
+		bool execute(Registers rg, ref size_t programCounter) const @safe {
+			return executeJumpInstruction!"a != b"(rg, programCounter, targetLocation, lhs, rhs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			return parseJumpInstruction!(typeof(this))(argsParser, state);
+		}
+	}
+
 	@Op("jnz")
 	@Jump
 	struct JumpIfNotZeroInstruction {
@@ -2262,11 +2278,21 @@ version (MindyscriptEmulatorAppMain) {
 	// JNZ
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,9\nJNZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 2);
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,0\nJNZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 1);
-
 	// JZ
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,9\nJZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 1);
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,0\nJZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 2);
 
+	// JNEQ
+	assert(assemble(
+			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
+			"LDI l,9\nLDI r,9\nJNEQ t,l,r\n" ~
+			"RET a\nt: RET b\nRET c"
+	).evaluateSafe().get!int == 0);
+	assert(assemble(
+			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
+			"LDI l,9\nLDI r,0\nJNEQ t,l,r\n" ~
+			"RET a\nt: RET b\nRET c"
+	).evaluateSafe().get!int == 1);
 	// JEQ
 	assert(assemble(
 			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
