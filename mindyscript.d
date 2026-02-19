@@ -270,12 +270,6 @@ private BinaryOperationRegisterIDs parseBinaryOperation(
 	return result;
 }
 
-private enum JumpInstructionRegisterCount {
-	none = 0,
-	single = 1,
-	binary = 2,
-}
-
 private void parseJumpInstruction(InstructionType)(
 	ref AssemblyInstructionArgumentsParser argsParser,
 	ref Assembler.State state,
