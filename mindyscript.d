@@ -386,6 +386,30 @@ struct ISA {
 		}
 	}
 
+	@Op("mov")
+	struct MoveInstruction {
+		RegisterID dst;
+		RegisterID src;
+
+		void execute(Registers rg) const @safe {
+			rg[dst] = rg[src];
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.setupConstraints(2, 2);
+
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const registerDst = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const registerSrc = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+
+			state.ir ~= Instruction(typeof(this)(registerDst, registerSrc));
+		}
+	}
+
 	@Op("mul")
 	struct MultiplyInstruction {
 		BinaryOperationRegisterIDs registerIDs;
@@ -2012,6 +2036,13 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI a,0\nRET a").bootSafe().isSuccess);
 	assert(assemble("LDI b, 1\nRET b").bootSafe().isFailure);
 	assert(assemble("LDI b,1\nRET b").bootSafe().isFailure);
+}
+
+// move
+@safe unittest {
+	assert(assemble("LDI a,10\nLDI b,20\nMOV b,a\nRET b").evaluateSafe().get!int == 10);
+	assert(assemble("LDI a,10\nMOV a,a\nRET a").evaluateSafe().get!int == 10);
+	assert(assemble("LDI a,10\nLDI b,20\nMOV b,a\nMOV b,b\nRET b").evaluateSafe().get!int == 10);
 }
 
 // integer arithmetic
