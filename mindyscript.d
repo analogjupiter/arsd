@@ -276,12 +276,14 @@ private template isRegisterID(T) {
 	enum isRegisterID = is(Unqual!T == RegisterID);
 }
 
+// dfmt off
 private bool executeJumpInstruction(istring cmp, Subjects...)(
 	Registers rg,
 	ref size_t programCounter,
 	const size_t targetLocation,
 	Subjects subjectRegisterIDs,
-) @safe if (
+) @safe
+if (
 	allSatisfy!(isRegisterID, Subjects)
 	&& (Subjects.length <= 2)
 	&& ((cmp is null) || ((cmp !is null) && (Subjects.length >= 1)))
@@ -303,7 +305,11 @@ private bool executeJumpInstruction(istring cmp, Subjects...)(
 		alias registerLHS = subjectRegisterIDs[0];
 		alias registerRHS = subjectRegisterIDs[1];
 
-		const bool shallJump = match!()(rg[registerLHS], rg[registerRHS]);
+		const bool shallJump = match!( // @suppress(dscanner.suspicious.label_var_same_name)
+			(              a,               b)            => mixin(cmp),
+			(typeof(null) na,               b) => ((a, b) => mixin(cmp))(cast(int) na,            b),
+			(              a, typeof(null) nb) => ((a, b) => mixin(cmp))(           a, cast(int) nb),
+		)(rg[registerLHS], rg[registerRHS]);
 	}
 
 	if (shallJump) {
@@ -313,6 +319,7 @@ private bool executeJumpInstruction(istring cmp, Subjects...)(
 
 	return false;
 }
+// dfmt on
 
 private void parseJumpInstruction(InstructionType)(
 	ref AssemblyInstructionArgumentsParser argsParser,
@@ -443,6 +450,22 @@ struct ISA {
 
 		bool execute(Registers rg, ref size_t programCounter) const @safe {
 			return executeJumpInstruction!null(rg, programCounter, targetLocation);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			return parseJumpInstruction!(typeof(this))(argsParser, state);
+		}
+	}
+
+	@Op("je")
+	@Jump
+	struct JumpIfEqual {
+		size_t targetLocation;
+		RegisterID lhs;
+		RegisterID rhs;
+
+		bool execute(Registers rg, ref size_t programCounter) const @safe {
+			return executeJumpInstruction!"a == b"(rg, programCounter, targetLocation, lhs, rhs);
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
@@ -2234,4 +2257,8 @@ version (MindyscriptEmulatorAppMain) {
 	// JZ
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,9\nJZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 1);
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,0\nJZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 2);
+
+	// JE
+	assert(assemble("LDI a,0\nLDI b,1\nLDI c,2\nLDI l,9\nLDI r,9\nJE t,l,r\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 1);
+	assert(assemble("LDI a,0\nLDI b,1\nLDI c,2\nLDI l,9\nLDI r,0\nJE t,l,r\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 0);
 }
