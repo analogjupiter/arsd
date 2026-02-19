@@ -412,6 +412,58 @@ struct ISA {
 		}
 	}
 
+	@Op("jnz")
+	@Jump
+	struct JumpIfNotZeroInstruction {
+		size_t targetLocation;
+		RegisterID subject;
+
+		bool execute(Registers rg, ref size_t programCounter) const @safe {
+			const subjectValue = rg[subject];
+			const shallJump = subjectValue.match!(
+				value => (value != 0),
+				(typeof(null) value) => false,
+			);
+
+			if (shallJump) {
+				programCounter = targetLocation;
+				return true;
+			}
+
+			return false;
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			return parseJumpInstruction!(typeof(this))(argsParser, state);
+		}
+	}
+
+	@Op("jz")
+	@Jump
+	struct JumpIfZeroInstruction {
+		size_t targetLocation;
+		RegisterID subject;
+
+		bool execute(Registers rg, ref size_t programCounter) const @safe {
+			const subjectValue = rg[subject];
+			const shallJump = subjectValue.match!(
+				value => (value == 0),
+				(typeof(null) value) => true,
+			);
+
+			if (shallJump) {
+				programCounter = targetLocation;
+				return true;
+			}
+
+			return false;
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			return parseJumpInstruction!(typeof(this))(argsParser, state);
+		}
+	}
+
 	@Op("ldi")
 	struct LoadImmediateInstruction {
 		RegisterID destination;
@@ -1706,9 +1758,23 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 					import std.traits : hasUDA;
 
 					alias InstructionType = typeof(decodedInstruction);
-					static if (hasUDA!(InstructionType, ISA.Jump)) {
-						decodedInstruction.execute(programCounter);
-						--programCounter; // compensate scheduled increment
+					enum  isJumpInstruction = hasUDA!(InstructionType, ISA.Jump);
+
+					static if (isJumpInstruction) {
+						enum usesRegisters = (
+							__traits(hasMember, InstructionType, "subject") ||
+							__traits(hasMember, InstructionType, "lhs")
+						);
+
+						static if (usesRegisters) {
+							if (decodedInstruction.execute(stackFrame.data, programCounter)) {
+								--programCounter; // compensate scheduled increment
+							}
+						}
+						else {
+							decodedInstruction.execute(programCounter);
+							--programCounter; // compensate scheduled increment
+						}
 					}
 					else {
 						decodedInstruction.execute(stackFrame.data);
@@ -2147,8 +2213,17 @@ version (MindyscriptEmulatorAppMain) {
 
 // jumps
 @safe unittest {
+	// JAL
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL target\nRET a\ntarget:RET b\nRET c").evaluateSafe().get!int == 2);
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL target\nRET a\ntarget: RET b\nRET c").evaluateSafe().get!int == 2);
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL target\nRET a\ntarget:\nRET b\nRET c").evaluateSafe().get!int == 2);
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL 5\nRET a\nRET b\nRET c").evaluateSafe().get!int == 2);
+
+	// JNZ
+	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,9\nJNZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 2);
+	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,0\nJNZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 1);
+
+	// JZ
+	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,9\nJZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 1);
+	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,0\nJZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 2);
 }
