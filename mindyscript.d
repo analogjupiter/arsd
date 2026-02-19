@@ -270,6 +270,94 @@ private BinaryOperationRegisterIDs parseBinaryOperation(
 	return result;
 }
 
+private enum JumpInstructionRegisterCount {
+	none = 0,
+	single = 1,
+	binary = 2,
+}
+
+private void parseJumpInstruction(InstructionType)(
+	ref AssemblyInstructionArgumentsParser argsParser,
+	ref Assembler.State state,
+) @safe {
+	static if (__traits(hasMember, InstructionType, "targetLocation")) {
+		alias TargetLocation = typeof(__traits(getMember, InstructionType, "targetLocation"));
+
+		static if (__traits(hasMember, InstructionType, "subject")) {
+			static assert(!__traits(hasMember, InstructionType, "lhs"));
+			static assert(!__traits(hasMember, InstructionType, "rhs"));
+			enum expectedArgCount = 2;
+		}
+		else static if (__traits(hasMember, InstructionType, "lhs")) {
+			static assert(__traits(hasMember, InstructionType, "rhs"));
+			enum expectedArgCount = 3;
+		}
+		else {
+			enum expectedArgCount = 1;
+		}
+	}
+	else {
+		enum expectedArgCount = 0;
+	}
+
+	argsParser.setupConstraints(expectedArgCount, expectedArgCount);
+
+	static if (expectedArgCount == 0) {
+		state.ir ~= Instruction(InstructionType());
+	}
+
+	static if (expectedArgCount >= 1) {
+		argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier, AssemblyToken.Type.literalInteger);
+
+		TargetLocation targetLocation;
+
+		if (argsParser.front.type == AssemblyToken.Type.identifier) {
+			const labelID = argsParser.front.data;
+			const location = argsParser.front.location;
+			argsParser.popFront();
+
+			state.requestLabelForUpcomingInstruction(labelID, location);
+			targetLocation = TargetLocation.max;
+		}
+		else if (argsParser.front.type == AssemblyToken.Type.literalInteger) {
+			targetLocation = parseLiteral(argsParser.front).get!int;
+			if (targetLocation < 0) {
+				static immutable msg = "Invalid target offset: Absolute value cannot be negative.";
+				throw new AssemblerException(msg, argsParser.front.location);
+			}
+
+			argsParser.popFront();
+		}
+		else {
+			assert(false, "unreachable");
+		}
+	}
+
+	static if (expectedArgCount == 1) {
+		state.ir ~= Instruction(InstructionType(targetLocation));
+	}
+
+	static if (expectedArgCount >= 2) {
+		argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+		const lhs = state.addOrResolveRegister(argsParser.front.data);
+		argsParser.popFront();
+	}
+
+	static if (expectedArgCount == 2) {
+		state.ir ~= Instruction(InstructionType(targetLocation, lhs));
+	}
+
+	static if (expectedArgCount >= 3) {
+		argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+		const rhs = state.addOrResolveRegister(argsParser.front.data);
+		argsParser.popFront();
+	}
+
+	static if (expectedArgCount == 3) {
+		state.ir ~= Instruction(InstructionType(targetLocation, lhs, rhs));
+	}
+}
+
 /++
 	Instruction Set Architecture
  +/
@@ -313,40 +401,14 @@ struct ISA {
 	@Op("jal")
 	@Jump
 	struct JumpAlwaysInstruction {
-		size_t targetOffset;
+		size_t targetLocation;
 
 		void execute(ref size_t programCounter) const @safe {
-			programCounter = targetOffset;
+			programCounter = targetLocation;
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
-			argsParser.setupConstraints(1, 1);
-
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier, AssemblyToken.Type.literalInteger);
-
-			if (argsParser.front.type == AssemblyToken.Type.identifier) {
-				const labelID = argsParser.front.data;
-				const location = argsParser.front.location;
-				argsParser.popFront();
-
-				state.requestLabelForUpcomingInstruction(labelID, location);
-				state.ir ~= Instruction(typeof(this)(typeof(typeof(this)().targetOffset).max));
-				return;
-			}
-
-			if (argsParser.front.type == AssemblyToken.Type.literalInteger) {
-				const value = parseLiteral(argsParser.front).get!int;
-				if (value < 0) {
-					static immutable msg = "Invalid target offset: Cannot be negative.";
-					throw new AssemblerException(msg, argsParser.front.location);
-				}
-
-				argsParser.popFront();
-				state.ir ~= Instruction(typeof(this)(value));
-				return;
-			}
-
-			assert(false, "unreachable");
+			return parseJumpInstruction!(typeof(this))(argsParser, state);
 		}
 	}
 
@@ -1210,8 +1272,8 @@ struct Assembler {
 			foreach (LabelPromise labelPromise; labelPromises) {
 				const label = this.resolveLabel(labelPromise.identifier, labelPromise.location);
 				ir[][labelPromise.irIdx].match!((ref instruction) {
-					static if (__traits(hasMember, instruction, "targetOffset")) {
-						instruction.targetOffset = label.offset;
+					static if (__traits(hasMember, instruction, "targetLocation")) {
+						instruction.targetLocation = label.offset;
 					}
 					else {
 						enum msg = "Unsupported instruction type `" ~ typeof(instruction).stringof ~ "` for label promise.";
