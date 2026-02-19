@@ -893,8 +893,7 @@ struct AssemblyLexer {
 			return this.makeToken(Token.Type.shebang, _source.length);
 		}
 
-		// TODO: implement
-		assert(false, "Not implemented.");
+		throw new AssemblyLexerException("Preprocessor macros are not supported.", this.makeLocation());
 	}
 
 	private size_t scanRawIdentifier() {
