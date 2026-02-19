@@ -903,14 +903,7 @@ struct AssemblyLexer {
 				continue;
 			}
 
-			if (c.isWhite || (c == ',') || (c == ':')) {
-				return idx;
-			}
-
-			throw new AssemblyLexerException(
-				"Unexpected character `" ~ c ~ "` in identifier.",
-				this.makeLocation(idx),
-			);
+			return idx;
 		}
 
 		return _source.length;
@@ -1064,8 +1057,7 @@ struct AssemblyLexer {
 			break;
 
 		case '\x80': .. case '\xFF':
-			this.makeToken(Token.Type.error, 1);
-			break;
+			throw new AssemblyLexerException("Unexpected Unicode character.", this.makeLocation());
 
 		default:
 			throw new AssemblyLexerException("Unexpected character.", this.makeLocation());
