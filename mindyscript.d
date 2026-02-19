@@ -775,6 +775,7 @@ struct AssemblyToken {
 		literalCharacter,
 		literalFloatingPoint,
 		literalInteger,
+		literalNull,
 		literalString,
 	}
 
@@ -820,6 +821,9 @@ Variable parseLiteral(AssemblyToken token) @safe {
 			return parseLiteral!int(token.data);
 			// dfmt on
 
+		case Token.Type.literalNull:
+			return Variable(null);
+
 		case AssemblyToken.Type.literalString:
 			// TODO: implement
 			assert(false, "Not implemented.");
@@ -830,6 +834,7 @@ Variable parseLiteral(AssemblyToken token) @safe {
 				AssemblyToken.Type.literalCharacter,
 				AssemblyToken.Type.literalFloatingPoint,
 				AssemblyToken.Type.literalInteger,
+				AssemblyToken.Type.literalNull,
 				AssemblyToken.Type.literalString,
 			], token.location);
 		}
@@ -947,6 +952,10 @@ struct AssemblyLexer {
 		case "false":
 		case "true":
 			type = Token.Type.literalBoolean;
+			break;
+
+		case "null":
+			type = Token.Type.literalNull;
 			break;
 
 		default:
@@ -1397,6 +1406,7 @@ struct AssemblyInstructionArgumentsParser {
 			case AssemblyToken.Type.literalCharacter:
 			case AssemblyToken.Type.literalFloatingPoint:
 			case AssemblyToken.Type.literalInteger:
+			case AssemblyToken.Type.literalNull:
 			case AssemblyToken.Type.literalString:
 				_state = State.parameter;
 				++_argumentCount;
@@ -2356,6 +2366,9 @@ version (MindyscriptEmulatorAppMain) {
 	// boolean literals
 	assert(assemble("LDI x,false\nRET x").evaluateSafe().get!bool == false);
 	assert(assemble("LDI x,true\nRET x").evaluateSafe().get!bool == true);
+
+	// null literal
+	assert(assemble("LDI x,null\nRET x").evaluateSafe().get!(typeof(null)) is null);
 
 	// integer literals
 	assert(assemble("LDI x,7\nRET x").evaluateSafe().get!int == 7);
