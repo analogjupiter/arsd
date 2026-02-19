@@ -2333,11 +2333,14 @@ version (MindyscriptEmulatorAppMain) {
 
 // jumps
 @safe unittest {
+	import std.exception : assertThrown;
+
 	// JAL
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL target\nRET a\ntarget:RET b\nRET c").evaluateSafe().get!int == 2);
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL target\nRET a\ntarget: RET b\nRET c").evaluateSafe().get!int == 2);
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL target\nRET a\ntarget:\nRET b\nRET c").evaluateSafe().get!int == 2);
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nJAL 5\nRET a\nRET b\nRET c").evaluateSafe().get!int == 2);
+	assertThrown!AssemblerException(assemble("JAL n\n"));
 
 	// JNZ
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,9\nJNZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 2);
