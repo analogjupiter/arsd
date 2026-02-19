@@ -2091,7 +2091,7 @@ template EmulatorApp() {
 							stderr.writeln(t);
 						}
 					}
-					catch (Throwable) {
+					catch (Throwable) { // @suppress(dscanner.suspicious.catch_em_all)
 						// ignore more errors
 					}
 				}
