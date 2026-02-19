@@ -932,6 +932,10 @@ struct AssemblyLexer {
 		bool floatingPoint = false;
 
 		foreach (size_t idx, char c; _source) {
+			if ((c == '-') && (idx == 0)) {
+				continue;
+			}
+
 			if (c.isDigit || c == '_') {
 				continue;
 			}
@@ -964,16 +968,19 @@ struct AssemblyLexer {
 	}
 
 	private void lexNumericLiteral() {
-		if ((_source[0] == '0') && (_source.length >= 2)) {
-			if (_source[1] == 'x') {
+		const size_t offset = (_source[0] == '-') ? 1 : 0;
+
+		if ((_source[offset] == '0') && (_source.length >= 2)) {
+			const second = _source[offset + 1];
+			if (second == 'x') {
 				// TODO: hex literals
 			}
 
-			if (_source[1] == 'b') {
+			if (second == 'b') {
 				// TODO: binary literals
 			}
 
-			if (_source[1] == 'o') {
+			if (second == 'o') {
 				// TODO: octal literals
 				throw new AssemblyLexerException(
 					"Octal literals are not supported.",
@@ -1039,6 +1046,10 @@ struct AssemblyLexer {
 
 		case ',':
 			this.makeToken(Token.Type.comma, 1);
+			break;
+
+		case '-':
+			this.lexNumericLiteral();
 			break;
 
 		case '0': .. case '9':
@@ -2294,6 +2305,7 @@ version (MindyscriptEmulatorAppMain) {
 	// add integers
 	assert(assemble("LDI a,4\nLDI b,3\nADD c,a,b\nRET c").evaluateSafe().get!int == 7);
 	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nRET a").evaluateSafe().get!int == 7);
+	assert(assemble("LDI a,-4\nLDI b,-3\nADD a,a,b\nRET a").evaluateSafe().get!int == -7);
 	assert(assemble("LDI a,4\nLDI b,3\nADD a,a,b\nADD a,a,b\nRET a").evaluateSafe().get!int == 10);
 
 	// subtract integers
@@ -2315,6 +2327,7 @@ version (MindyscriptEmulatorAppMain) {
 
 // floating-point arithmetic
 @safe unittest {
+	assert(assemble("LDI a,-4.1\nLDI b,-3.0\nADD c,a,b\nRET c").evaluateSafe().get!float.round() == -7);
 	assert(assemble("LDI a,4.1\nLDI b,3.0\nADD c,a,b\nRET c").evaluateSafe().get!float.round() == 7);
 	assert(assemble("LDI a,4.1\nLDI b,3.0\nADD a,a,b\nRET a").evaluateSafe().get!float.round() == 7);
 	assert(assemble("LDI a,4  \nLDI b,3.0\nADD c,a,b\nRET c").evaluateSafe().get!float.round() == 7);
