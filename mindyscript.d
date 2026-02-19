@@ -270,6 +270,50 @@ private BinaryOperationRegisterIDs parseBinaryOperation(
 	return result;
 }
 
+private template isRegisterID(T) {
+	import std.traits : Unqual;
+
+	enum isRegisterID = is(Unqual!T == RegisterID);
+}
+
+private bool executeJumpInstruction(istring cmp, Subjects...)(
+	Registers rg,
+	ref size_t programCounter,
+	const size_t targetLocation,
+	Subjects subjectRegisterIDs,
+) @safe if (
+	allSatisfy!(isRegisterID, Subjects)
+	&& (Subjects.length <= 2)
+	&& ((cmp is null) || ((cmp !is null) && (Subjects.length >= 1)))
+) {
+	static if (subjectRegisterIDs.length == 0) {
+		const shallJump = true;
+	}
+
+	static if (subjectRegisterIDs.length == 1) {
+		alias registerSubject = subjectRegisterIDs[0];
+		const subjectValue = rg[registerSubject];
+		const bool shallJump = subjectValue.match!(
+			a => mixin(cmp),
+			(typeof(null) x) => ((int a) => mixin(cmp))(cast(int) x),
+		);
+	}
+
+	static if (subjectRegisterIDs.length == 2) {
+		alias registerLHS = subjectRegisterIDs[0];
+		alias registerRHS = subjectRegisterIDs[1];
+
+		const bool shallJump = match!()(rg[registerLHS], rg[registerRHS]);
+	}
+
+	if (shallJump) {
+		programCounter = targetLocation;
+		return true;
+	}
+
+	return false;
+}
+
 private void parseJumpInstruction(InstructionType)(
 	ref AssemblyInstructionArgumentsParser argsParser,
 	ref Assembler.State state,
@@ -397,8 +441,8 @@ struct ISA {
 	struct JumpAlwaysInstruction {
 		size_t targetLocation;
 
-		void execute(ref size_t programCounter) const @safe {
-			programCounter = targetLocation;
+		bool execute(Registers rg, ref size_t programCounter) const @safe {
+			return executeJumpInstruction!null(rg, programCounter, targetLocation);
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
@@ -413,18 +457,7 @@ struct ISA {
 		RegisterID subject;
 
 		bool execute(Registers rg, ref size_t programCounter) const @safe {
-			const subjectValue = rg[subject];
-			const shallJump = subjectValue.match!(
-				value => (value != 0),
-				(typeof(null) value) => false,
-			);
-
-			if (shallJump) {
-				programCounter = targetLocation;
-				return true;
-			}
-
-			return false;
+			return executeJumpInstruction!"a != 0"(rg, programCounter, targetLocation, subject);
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
@@ -439,18 +472,7 @@ struct ISA {
 		RegisterID subject;
 
 		bool execute(Registers rg, ref size_t programCounter) const @safe {
-			const subjectValue = rg[subject];
-			const shallJump = subjectValue.match!(
-				value => (value == 0),
-				(typeof(null) value) => true,
-			);
-
-			if (shallJump) {
-				programCounter = targetLocation;
-				return true;
-			}
-
-			return false;
+			return executeJumpInstruction!"a == 0"(rg, programCounter, targetLocation, subject);
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
@@ -1755,18 +1777,8 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 					enum  isJumpInstruction = hasUDA!(InstructionType, ISA.Jump);
 
 					static if (isJumpInstruction) {
-						enum usesRegisters = (
-							__traits(hasMember, InstructionType, "subject") ||
-							__traits(hasMember, InstructionType, "lhs")
-						);
-
-						static if (usesRegisters) {
-							if (decodedInstruction.execute(stackFrame.data, programCounter)) {
-								--programCounter; // compensate scheduled increment
-							}
-						}
-						else {
-							decodedInstruction.execute(programCounter);
+						const bool didJump = decodedInstruction.execute(stackFrame.data, programCounter);
+						if (didJump) {
 							--programCounter; // compensate scheduled increment
 						}
 					}
