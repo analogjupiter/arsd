@@ -473,6 +473,22 @@ struct ISA {
 		}
 	}
 
+	@Op("jgt")
+	@Jump
+	struct JumpIfGreaterThan {
+		size_t targetLocation;
+		RegisterID lhs;
+		RegisterID rhs;
+
+		bool execute(Registers rg, ref size_t programCounter) const @safe {
+			return executeJumpInstruction!"a > b"(rg, programCounter, targetLocation, lhs, rhs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			return parseJumpInstruction!(typeof(this))(argsParser, state);
+		}
+	}
+
 	@Op("jlt")
 	@Jump
 	struct JumpIfLessThan {
@@ -498,6 +514,22 @@ struct ISA {
 
 		bool execute(Registers rg, ref size_t programCounter) const @safe {
 			return executeJumpInstruction!"a != b"(rg, programCounter, targetLocation, lhs, rhs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			return parseJumpInstruction!(typeof(this))(argsParser, state);
+		}
+	}
+
+	@Op("jngt")
+	@Jump
+	struct JumpIfNotGreaterThan {
+		size_t targetLocation;
+		RegisterID lhs;
+		RegisterID rhs;
+
+		bool execute(Registers rg, ref size_t programCounter) const @safe {
+			return executeJumpInstruction!"a <= b"(rg, programCounter, targetLocation, lhs, rhs);
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
@@ -2336,6 +2368,39 @@ version (MindyscriptEmulatorAppMain) {
 			"LDI l,9\nLDI r,0\nJEQ t,l,r\n" ~
 			"RET a\nt: RET b\nRET c"
 	).evaluateSafe().get!int == 0);
+
+	// JNGT
+	assert(assemble(
+			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
+			"LDI l,9\nLDI r,9\nJNGT t,l,r\n" ~
+			"RET a\nt: RET b\nRET c"
+	).evaluateSafe().get!int == 1);
+	assert(assemble(
+			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
+			"LDI l,4\nLDI r,9\nJNGT t,l,r\n" ~
+			"RET a\nt: RET b\nRET c"
+	).evaluateSafe().get!int == 1);
+	assert(assemble(
+			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
+			"LDI l,9\nLDI r,4\nJNGT t,l,r\n" ~
+			"RET a\nt: RET b\nRET c"
+	).evaluateSafe().get!int == 0);
+	// JGT
+	assert(assemble(
+			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
+			"LDI l,9\nLDI r,9\nJGT t,l,r\n" ~
+			"RET a\nt: RET b\nRET c"
+	).evaluateSafe().get!int == 0);
+	assert(assemble(
+			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
+			"LDI l,4\nLDI r,9\nJGT t,l,r\n" ~
+			"RET a\nt: RET b\nRET c"
+	).evaluateSafe().get!int == 0);
+	assert(assemble(
+			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
+			"LDI l,9\nLDI r,4\nJGT t,l,r\n" ~
+			"RET a\nt: RET b\nRET c"
+	).evaluateSafe().get!int == 1);
 
 	// JNLT
 	assert(assemble(
