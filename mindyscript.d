@@ -1832,12 +1832,18 @@ Program assemble(string sourceCode, string sourceFile = null) @safe {
 	return assembler.assemble(sourceCode, sourceFile);
 }
 
-ReturnValue execute(MemorySafety memorySafety = MemorySafety.system)(const Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
+ReturnValue execute(MemorySafety memorySafety = MemorySafety.system)(
+	const Program program,
+	VirtualMachineSettings settings = VirtualMachineSettings(),
+) {
 	auto vm = new VirtualMachine!memorySafety(settings);
 	return vm.execute(program);
 }
 
-Variable evaluate(MemorySafety memorySafety = MemorySafety.system)(const Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
+Variable evaluate(MemorySafety memorySafety = MemorySafety.system)(
+	const Program program,
+	VirtualMachineSettings settings = VirtualMachineSettings(),
+) {
 	auto returnValue = execute!memorySafety(program, settings);
 	return returnValue.match!(
 		(Variable var) => var,
@@ -1845,7 +1851,10 @@ Variable evaluate(MemorySafety memorySafety = MemorySafety.system)(const Program
 	);
 }
 
-ExitCode boot(MemorySafety memorySafety = MemorySafety.system)(const Program program, VirtualMachineSettings settings = VirtualMachineSettings()) {
+ExitCode boot(MemorySafety memorySafety = MemorySafety.system)(
+	const Program program,
+	VirtualMachineSettings settings = VirtualMachineSettings(),
+) {
 	auto vm = new VirtualMachine!memorySafety(settings);
 	return vm.boot(program);
 }
@@ -2259,6 +2268,14 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,0\nJZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 2);
 
 	// JE
-	assert(assemble("LDI a,0\nLDI b,1\nLDI c,2\nLDI l,9\nLDI r,9\nJE t,l,r\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 1);
-	assert(assemble("LDI a,0\nLDI b,1\nLDI c,2\nLDI l,9\nLDI r,0\nJE t,l,r\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 0);
+	assert(assemble(
+			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
+			"LDI l,9\nLDI r,9\nJE t,l,r\n" ~
+			"RET a\nt: RET b\nRET c"
+	).evaluateSafe().get!int == 1);
+	assert(assemble(
+			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
+			"LDI l,9\nLDI r,0\nJE t,l,r\n" ~
+			"RET a\nt: RET b\nRET c"
+	).evaluateSafe().get!int == 0);
 }
