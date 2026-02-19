@@ -2270,12 +2270,17 @@ version (MindyscriptEmulatorAppMain) {
 
 // void return
 @safe unittest {
+	import std.exception : assertThrown;
+
 	assert(assemble("RET\r\n").bootSafe().isSuccess);
 	assert(assemble("RET\n").bootSafe().isSuccess);
 	assert(assemble("RET").bootSafe().isSuccess);
 
 	// case-insensitive
 	assert(assemble("ret\n").bootSafe().isSuccess);
+
+	// `evaluate()` throws upon `void`.
+	assertThrown!VoidResultException(assemble("RET").evaluateSafe());
 }
 
 // int return
