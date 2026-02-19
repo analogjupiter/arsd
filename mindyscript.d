@@ -457,7 +457,7 @@ struct ISA {
 		}
 	}
 
-	@Op("je")
+	@Op("jeq")
 	@Jump
 	struct JumpIfEqual {
 		size_t targetLocation;
@@ -2267,15 +2267,15 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,9\nJZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 1);
 	assert(assemble("LDI a,1\nLDI b,2\nLDI c,3\nLDI s,0\nJZ t,s\nRET a\nt: RET b\nRET c").evaluateSafe().get!int == 2);
 
-	// JE
+	// JEQ
 	assert(assemble(
 			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
-			"LDI l,9\nLDI r,9\nJE t,l,r\n" ~
+			"LDI l,9\nLDI r,9\nJEQ t,l,r\n" ~
 			"RET a\nt: RET b\nRET c"
 	).evaluateSafe().get!int == 1);
 	assert(assemble(
 			"LDI a,0\nLDI b,1\nLDI c,2\n" ~
-			"LDI l,9\nLDI r,0\nJE t,l,r\n" ~
+			"LDI l,9\nLDI r,0\nJEQ t,l,r\n" ~
 			"RET a\nt: RET b\nRET c"
 	).evaluateSafe().get!int == 0);
 }
