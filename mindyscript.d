@@ -221,6 +221,7 @@ Variable parseLiteral(T)(string rawValue) @safe if (isVariableType!T) {
 // === ISA =====================================================================
 
 alias RegisterID = size_t;
+alias FunctionLinkID = size_t;
 
 alias Registers = Variable[];
 
@@ -426,6 +427,70 @@ struct ISA {
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
 			const registerIDs = parseBinaryOperation(argsParser, state);
 			state.ir ~= Instruction(typeof(this)(registerIDs));
+		}
+	}
+
+	@Op("call")
+	struct CallInstruction {
+		private {
+			alias Loader = LinkedProgram* delegate(string) @safe;
+			alias Executor = ReturnValue delegate(const LinkedProgram program) @safe;
+		}
+
+		FunctionLinkID linkID;
+		RegisterID returnedValue;
+		bool discardReturnValue;
+
+		void execute(Registers rg, inout(ProgramLink)[] programLinkTable, Loader load, Executor execute) const @safe {
+			const calleeLink = programLinkTable[linkID];
+
+			// dfmt off
+			const callee = calleeLink.match!(
+				(const(LinkedProgram)* callee) => callee,
+				(const LinkedProgramPromise promise) {
+					const callee = load(promise.identifier);
+					if (callee is null) {
+						throw new UndefinedProgramException(promise.identifier);
+					}
+					return callee;
+				}
+			);
+			// dfmt on
+
+			ReturnValue retVal = execute(*callee);
+
+			if (discardReturnValue) {
+				return;
+			}
+
+			retVal.match!(
+				(Variable value) => rg[returnedValue] = value,
+				(VMVoid void_) => throw new VoidResultException(),
+			);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.setupConstraints(1, 2);
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+
+			const identifier1st = argsParser.front.data;
+			argsParser.popFront();
+
+			if (argsParser.empty) {
+				// discard return value
+				const linkID = state.addOrResolveFunctionLink(identifier1st);
+				state.ir ~= Instruction(typeof(this)(linkID, RegisterID.max, true));
+				return;
+			}
+
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const identifier2nd = argsParser.front.data;
+			argsParser.popFront();
+
+			// save return value
+			const returnedValue = state.addOrResolveRegister(identifier1st);
+			const linkID = state.addOrResolveFunctionLink(identifier2nd);
+			state.ir ~= Instruction(typeof(this)(linkID, returnedValue, false));
 		}
 	}
 
@@ -1469,6 +1534,7 @@ struct Assembler {
 
 	private static struct State {
 		Appender!(Instruction[]) ir;
+		Appender!(string[]) functionLinks;
 		Label[string] labels;
 		Appender!(LabelPromise[]) labelPromises;
 		Appender!(string[]) registers;
@@ -1495,6 +1561,18 @@ struct Assembler {
 
 			registers ~= identifier;
 			return -1 + registers.length;
+		}
+
+		FunctionLinkID addOrResolveFunctionLink(string identifier) @safe {
+			foreach (FunctionLinkID idx, string knownLink; functionLinks[]) {
+				if (knownLink == identifier) {
+					return idx;
+				}
+			}
+
+			const idxAdded = functionLinks.length;
+			functionLinks ~= identifier;
+			return idxAdded;
 		}
 
 		void requestLabelForUpcomingInstruction(string identifier, const Location location) {
@@ -1561,7 +1639,7 @@ struct Assembler {
 
 		_state.resolveLabelPromises();
 
-		return Program(_state.ir[], _state.registers.length);
+		return Program(_state.ir[], _state.registers.length, _state.functionLinks[]);
 	}
 
 	private void parseInstruction(ref Lexer lexer) {
@@ -1874,7 +1952,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 		Stack _stack;
 	}
 
-	public this(VirtualMachineSettings settings) @safe {
+	public this(VirtualMachineSettings settings = VirtualMachineSettings()) @safe {
 		_settings = settings;
 	}
 
@@ -1930,12 +2008,12 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 	}
 
 	ReturnValue execute(string programIdentifier) {
-		const program = this.load(programIdentifier);
-		if (program is null) {
+		const linkedProgram = this.load(programIdentifier);
+		if (linkedProgram is null) {
 			throw new UndefinedProgramException(programIdentifier);
 		}
 
-		return this.execute(*program);
+		return this.execute(*linkedProgram);
 	}
 
 	private LinkedProgram* load(string identifier) {
@@ -1969,6 +2047,11 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 			// dfmt off
 			alias decodeAndExecute = std.sumtype.match!(
+				(ISA.CallInstruction call) {
+					const ReturnValue delegate(const LinkedProgram) executorTmp = &this.execute;
+					const executor = (() @trusted => cast(ISA.CallInstruction.Executor) executorTmp)(); // sweet lie
+					call.execute(stackFrame.data, linkedProgram.functionLinkTable, &this.load, executor);
+				},
 				(ISA.NoOpInstruction nop) {
 					nop.execute();
 				},
@@ -2005,9 +2088,34 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 		return returnValue;
 	}
 
-	LinkedProgram link(const Program* program) @safe {
-		auto result = LinkedProgram(program);
+	Variable evaluate(string programIdentifier) {
+		const linkedProgram = this.load(programIdentifier);
+		if (linkedProgram is null) {
+			throw new UndefinedProgramException(programIdentifier);
+		}
 
+		return this.evaluate(*linkedProgram);
+	}
+
+	Variable evaluate(const Program program) {
+		scope programPtr = (() @trusted => &program)();
+		return this.evaluate(programPtr);
+	}
+
+	Variable evaluate(scope const Program* program) {
+		const linked = this.link(program);
+		return this.evaluate(linked);
+	}
+
+	Variable evaluate(const LinkedProgram program) {
+		auto returnValue = this.execute(program);
+		return returnValue.match!(
+			(Variable var) => var,
+			(VMVoid void_) => throw new VoidResultException(),
+		);
+	}
+
+	private LinkedProgram link(const Program* program) @safe {
 		auto linkTable = new ProgramLink[](program.functionLinks.length);
 
 		foreach (idx, linkIdentifier; program.functionLinks) {
@@ -2020,8 +2128,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 			() @trusted { linkTable[idx] = link; }();
 		}
 
-		result.functionLinkTable = linkTable[];
-		return result;
+		return LinkedProgram(program, linkTable);
 	}
 }
 
@@ -2063,6 +2170,7 @@ version (unittest) {
 	private alias executeSafe = execute!(MemorySafety.safe);
 	private alias evaluateSafe = evaluate!(MemorySafety.safe);
 	private alias bootSafe = boot!(MemorySafety.safe);
+	private alias SafeVirtualMachine = VirtualMachine!(MemorySafety.safe);
 }
 
 @safe unittest {
@@ -2588,4 +2696,14 @@ version (MindyscriptEmulatorAppMain) {
 			"LDI l,4\nLDI r,9\nJLT t,l,r\n" ~
 			"RET a\nt: RET b\nRET c"
 	).evaluateSafe().get!int == 1);
+}
+
+// function call
+@safe unittest {
+	auto func = assemble("LDI x,7\nRET x\n");
+	auto main = assemble("CALL r,func\nRET r");
+
+	auto vm = new SafeVirtualMachine();
+	vm.register("func", func);
+	assert(vm.evaluate(main).get!int == 7);
 }
