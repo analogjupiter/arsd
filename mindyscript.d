@@ -2271,7 +2271,7 @@ template EmulatorApp() {
 
 		private ExitCode executeCodeAssembly(string sourceCode, istring sourceFile) {
 			auto program = assemble(sourceCode, sourceFile);
-			return execute(program);
+			return boot(program);
 		}
 
 		private ExitCode executeCodeAutoDetect(string sourceCode, istring sourceFile) {
