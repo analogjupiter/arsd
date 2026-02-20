@@ -752,6 +752,7 @@ template idOf(Instruction) {
 struct Program {
 	Instruction[] ir;
 	RegisterID registerCount;
+	string[] functionLinks;
 }
 
 // === Assembler ===============================================================
@@ -1543,7 +1544,7 @@ struct Assembler {
 
 	Program assemble(AssemblyLexer lexer) {
 		_state.ir = appender!(Instruction[])();
-		_state.labels = null;
+		_state.labels.clear();
 		_state.labelPromises = appender!(LabelPromise[]);
 		_state.registers = appender!(string[])();
 
@@ -1847,9 +1848,19 @@ enum MemorySafety : bool {
 	safe = true,
 }
 
-private struct RegisteredProgram {
-	Program program;
+private struct LinkedProgram {
+	const(Program)* program;
+	ProgramLink[] functionLinkTable;
 }
+
+private struct LinkedProgramPromise {
+	string identifier;
+}
+
+private alias ProgramLink = std.sumtype.SumType!(
+	LinkedProgram*,
+	LinkedProgramPromise,
+);
 
 final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
@@ -1858,7 +1869,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 		bool _machineInitialized = false;
 
-		RegisteredProgram[string] _registry;
+		LinkedProgram[string] _registry;
 		Variable[string] _globals;
 		Stack _stack;
 	}
@@ -1867,12 +1878,23 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 		_settings = settings;
 	}
 
-	void register(string identifier, Program program) {
+	void register(string identifier, const Program program) @safe {
+		const programPtr = new const(Program)(
+			program.ir,
+			program.registerCount,
+			program.functionLinks,
+		);
+		debug assert(*programPtr == program);
+
+		return this.register(identifier, programPtr);
+	}
+
+	void register(string identifier, const Program* program) @safe {
 		if ((identifier in _registry) !is null) {
 			throw new DuplicateProgramException(identifier);
 		}
 
-		_registry[identifier] = RegisteredProgram(program);
+		_registry[identifier] = this.link(program);
 	}
 
 	private void initializeMachineForced() @safe {
@@ -1908,27 +1930,32 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 	}
 
 	ReturnValue execute(string programIdentifier) {
-		Program program;
-		const loaded = this.load(programIdentifier, program);
-		if (!loaded) {
+		const program = this.load(programIdentifier);
+		if (program is null) {
 			throw new UndefinedProgramException(programIdentifier);
 		}
 
-		return this.execute(program);
+		return this.execute(*program);
 	}
 
-	private bool load(string identifier, out Program program) {
-		auto found = identifier in _registry;
-		if (found is null) {
-			return false;
-		}
-
-		program = found.program;
-		return true;
+	private LinkedProgram* load(string identifier) {
+		return identifier in _registry;
 	}
 
 	ReturnValue execute(const Program program) {
+		scope programPtr = (() @trusted => &program)();
+		return this.execute(programPtr);
+	}
+
+	ReturnValue execute(const scope Program* program) {
+		const linked = this.link(program);
+		return this.execute(linked);
+	}
+
+	ReturnValue execute(const scope LinkedProgram linkedProgram) {
 		this.initializeMachine();
+
+		const program = linkedProgram.program;
 
 		Stack.Frame stackFrame = _stack.push(program.registerCount);
 		scope (exit) {
@@ -1976,6 +2003,25 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 		}
 
 		return returnValue;
+	}
+
+	LinkedProgram link(const Program* program) @safe {
+		auto result = LinkedProgram(program);
+
+		auto linkTable = new ProgramLink[](program.functionLinks.length);
+
+		foreach (idx, linkIdentifier; program.functionLinks) {
+			auto resolved = this.load(linkIdentifier);
+			// dfmt off
+			auto link = (resolved is null)
+				? ProgramLink(LinkedProgramPromise(linkIdentifier))
+				: ProgramLink(resolved);
+			// dfmt on
+			() @trusted { linkTable[idx] = link; }();
+		}
+
+		result.functionLinkTable = linkTable[];
+		return result;
 	}
 }
 
