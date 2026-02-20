@@ -1847,6 +1847,10 @@ enum MemorySafety : bool {
 	safe = true,
 }
 
+private struct RegisteredProgram {
+	Program program;
+}
+
 final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 	private {
@@ -1854,7 +1858,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 		bool _machineInitialized = false;
 
-		Program[string] _registry;
+		RegisteredProgram[string] _registry;
 		Variable[string] _globals;
 		Stack _stack;
 	}
@@ -1868,7 +1872,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 			throw new DuplicateProgramException(identifier);
 		}
 
-		_registry[identifier] = program;
+		_registry[identifier] = RegisteredProgram(program);
 	}
 
 	private void initializeMachineForced() @safe {
@@ -1919,7 +1923,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 			return false;
 		}
 
-		program = *found;
+		program = found.program;
 		return true;
 	}
 
