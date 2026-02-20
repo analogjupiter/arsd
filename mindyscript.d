@@ -1983,6 +1983,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 		_settings.validateThrow();
 
 		_stack = new Stack(_settings.stack);
+		_machineInitialized = true;
 	}
 
 	private void initializeMachine() {
