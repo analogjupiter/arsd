@@ -236,16 +236,43 @@ struct BinaryOperationRegisterIDs {
 	RegisterID rhs;
 }
 
-private pragma(inline, true) void executeOperator(string op)(
+private pragma(inline, true) void executeOperator(istring op, bool fp = true)(
 	Registers registers,
 	BinaryOperationRegisterIDs registerIDs,
 ) @safe {
-	match!(
+	import std.traits;
+
+	alias nullHandlers = AliasSeq!(
 		(typeof(null) lhs, typeof(null) rhs) { registers[registerIDs.dst] = null; },
 		(typeof(null) lhs, rhs) { registers[registerIDs.dst] = null; },
 		(lhs, typeof(null) rhs) { registers[registerIDs.dst] = null; },
-		(lhs, rhs) { registers[registerIDs.dst] = mixin(op); },
-	)(registers[registerIDs.lhs], registers[registerIDs.rhs]);
+	);
+
+	alias genericHandler = (lhs, rhs) {
+		alias LHS = typeof(lhs);
+		alias RHS = typeof(rhs);
+
+		static if (!fp) {
+			static if (isFloatingPoint!LHS) {
+				enum msg = "`" ~ LHS.stringof ~ "` is not a suitable type for `" ~ op ~ "`.";
+				alias incompatibleType = AliasSeq!(LHS, msg);
+			}
+			else static if (isFloatingPoint!RHS) {
+				enum msg = "`" ~ RHS.stringof ~ "` is not a suitable type for `" ~ op ~ "`.";
+				alias incompatibleType = AliasSeq!(RHS, msg);
+			}
+		}
+
+		static if (is(typeof(incompatibleType))) {
+			throw new IncompatibleTypeException!(incompatibleType[0])(incompatibleType[1]);
+		}
+		else {
+			registers[registerIDs.dst] = mixin(op);
+		}
+	};
+
+	alias handlers = AliasSeq!(nullHandlers, genericHandler);
+	return match!handlers(registers[registerIDs.lhs], registers[registerIDs.rhs]);
 }
 
 private BinaryOperationRegisterIDs parseBinaryOperation(
@@ -422,6 +449,20 @@ struct ISA {
 
 		void execute(Registers rg) const @safe {
 			executeOperator!"lhs + rhs"(rg, registerIDs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			const registerIDs = parseBinaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
+		}
+	}
+
+	@Op("and")
+	struct AndInstruction {
+		BinaryOperationRegisterIDs registerIDs;
+
+		void execute(Registers rg) const @safe {
+			executeOperator!("lhs & rhs", false)(rg, registerIDs);
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
@@ -733,6 +774,20 @@ struct ISA {
 		}
 	}
 
+	@Op("or")
+	struct OrInstruction {
+		BinaryOperationRegisterIDs registerIDs;
+
+		void execute(Registers rg) const @safe {
+			executeOperator!("lhs | rhs", false)(rg, registerIDs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			const registerIDs = parseBinaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
+		}
+	}
+
 	@Op("print")
 	struct PrintInstruction {
 		RegisterID a;
@@ -790,6 +845,20 @@ struct ISA {
 
 		void execute(Registers rg) const @safe {
 			executeOperator!"lhs - rhs"(rg, registerIDs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			const registerIDs = parseBinaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
+		}
+	}
+
+	@Op("xor")
+	struct XorInstruction {
+		BinaryOperationRegisterIDs registerIDs;
+
+		void execute(Registers rg) const @safe {
+			executeOperator!("lhs ^ rhs", false)(rg, registerIDs);
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
@@ -1861,6 +1930,15 @@ final class VoidResultException : VirtualMachineException {
 	}
 }
 
+final class IncompatibleTypeException(Type) : VirtualMachineException {
+	alias IncompatibleType = Type;
+
+	this(istring details, istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
+		const msg = "Incompatible type: " ~ details;
+		super(msg, file, line, next);
+	}
+}
+
 struct StackSettings {
 	size_t sizeDefault = 4096;
 	size_t sizeIncrements = 2048;
@@ -2632,6 +2710,13 @@ version (MindyscriptEmulatorAppMain) {
 	assert((assemble("LDI a,5.0\nLDI b,2.5\nMUL c,a,b\nRET c").evaluateSafe().get!float * 10).round() == 125);
 	assert((assemble("LDI a,7.0\nLDI b,2.0\nDIV c,a,b\nRET c").evaluateSafe().get!float * 10).round() == 35);
 	assert(assemble("LDI a,8.0\nLDI b,3.0\nMOD c,a,b\nRET c").evaluateSafe().get!float.round() == 2);
+}
+
+// boolean algebra
+@safe unittest {
+	assert(assemble("LDI a,0b0100\nLDI b,0b1010\nOR c,a,b\nRET c").evaluateSafe().get!int == 0b1110);
+	assert(assemble("LDI a,0b0110\nLDI b,0b1010\nXOR c,a,b\nRET c").evaluateSafe().get!int == 0b1100);
+	assert(assemble("LDI a,0b0110\nLDI b,0b1010\nAND c,a,b\nRET c").evaluateSafe().get!int == 0b0010);
 }
 
 // jumps
