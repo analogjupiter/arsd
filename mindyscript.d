@@ -711,6 +711,35 @@ struct ISA {
 		}
 	}
 
+	@Op("lnot")
+	struct LogicalNotInstruction {
+		RegisterID dst;
+		RegisterID src;
+
+		void execute(Registers rg) const @safe {
+			rg[dst] = rg[src].match!(x => !x);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.setupConstraints(1, 2);
+
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const registerDst = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+
+			if (argsParser.empty) {
+				state.ir ~= Instruction(typeof(this)(registerDst, registerDst));
+				return;
+			}
+
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const registerSrc = state.addOrResolveRegister(argsParser.front.data);
+			argsParser.popFront();
+
+			state.ir ~= Instruction(typeof(this)(registerDst, registerSrc));
+		}
+	}
+
 	@Op("mod")
 	struct ModuloInstruction {
 		BinaryOperationRegisterIDs registerIDs;
@@ -771,35 +800,6 @@ struct ISA {
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
 			argsParser.setupConstraints(0, 0);
-		}
-	}
-
-	@Op("not")
-	struct NotInstruction {
-		RegisterID dst;
-		RegisterID src;
-
-		void execute(Registers rg) const @safe {
-			rg[dst] = rg[src].match!(x => !x);
-		}
-
-		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
-			argsParser.setupConstraints(1, 2);
-
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
-			const registerDst = state.addOrResolveRegister(argsParser.front.data);
-			argsParser.popFront();
-
-			if (argsParser.empty) {
-				state.ir ~= Instruction(typeof(this)(registerDst, registerDst));
-				return;
-			}
-
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
-			const registerSrc = state.addOrResolveRegister(argsParser.front.data);
-			argsParser.popFront();
-
-			state.ir ~= Instruction(typeof(this)(registerDst, registerSrc));
 		}
 	}
 
@@ -2800,10 +2800,10 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI a,0b0110\nLDI b,0b1010\nXOR c,a,b\nRET c").evaluateSafe().get!int == 0b1100);
 	assert(assemble("LDI a,0b0110\nLDI b,0b1010\nAND c,a,b\nRET c").evaluateSafe().get!int == 0b0010);
 
-	assert(assemble("LDI a,false\nNOT a  \nRET a").evaluateSafe().get!bool == true);
-	assert(assemble("LDI a,true \nNOT a  \nRET a").evaluateSafe().get!bool == false);
-	assert(assemble("LDI a,false\nNOT r,a\nRET r").evaluateSafe().get!bool == true);
-	assert(assemble("LDI a,true \nNOT r,a\nRET r").evaluateSafe().get!bool == false);
+	assert(assemble("LDI a,false\nLNOT a  \nRET a").evaluateSafe().get!bool == true);
+	assert(assemble("LDI a,true \nLNOT a  \nRET a").evaluateSafe().get!bool == false);
+	assert(assemble("LDI a,false\nLNOT r,a\nRET r").evaluateSafe().get!bool == true);
+	assert(assemble("LDI a,true \nLNOT r,a\nRET r").evaluateSafe().get!bool == false);
 }
 
 // jumps
