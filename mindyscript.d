@@ -565,7 +565,7 @@ struct ISA {
 
 	@Op("jeq")
 	@Jump
-	struct JumpIfEqual {
+	struct JumpIfEqualInstruction {
 		size_t targetLocation;
 		RegisterID lhs;
 		RegisterID rhs;
@@ -581,7 +581,7 @@ struct ISA {
 
 	@Op("jgt")
 	@Jump
-	struct JumpIfGreaterThan {
+	struct JumpIfGreaterThanInstruction {
 		size_t targetLocation;
 		RegisterID lhs;
 		RegisterID rhs;
@@ -597,7 +597,7 @@ struct ISA {
 
 	@Op("jlt")
 	@Jump
-	struct JumpIfLessThan {
+	struct JumpIfLessThanInstruction {
 		size_t targetLocation;
 		RegisterID lhs;
 		RegisterID rhs;
@@ -613,7 +613,7 @@ struct ISA {
 
 	@Op("jneq")
 	@Jump
-	struct JumpIfNotEqual {
+	struct JumpIfNotEqualInstruction {
 		size_t targetLocation;
 		RegisterID lhs;
 		RegisterID rhs;
@@ -629,7 +629,7 @@ struct ISA {
 
 	@Op("jngt")
 	@Jump
-	struct JumpIfNotGreaterThan {
+	struct JumpIfNotGreaterThanInstruction {
 		size_t targetLocation;
 		RegisterID lhs;
 		RegisterID rhs;
@@ -645,7 +645,7 @@ struct ISA {
 
 	@Op("jnlt")
 	@Jump
-	struct JumpIfNotLessThan {
+	struct JumpIfNotLessThanInstruction {
 		size_t targetLocation;
 		RegisterID lhs;
 		RegisterID rhs;
