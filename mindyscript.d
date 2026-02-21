@@ -298,6 +298,35 @@ private BinaryOperationRegisterIDs parseBinaryOperation(
 	return result;
 }
 
+struct UnaryOperationRegisterIDs {
+	/// Destination
+	RegisterID dst;
+
+	/// Source
+	RegisterID src;
+}
+
+private UnaryOperationRegisterIDs parseUnaryOperation(
+	ref AssemblyInstructionArgumentsParser argsParser,
+	ref Assembler.State state,
+) @safe {
+	argsParser.setupConstraints(1, 2);
+
+	argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+	const registerDst = state.addOrResolveRegister(argsParser.front.data);
+	argsParser.popFront();
+
+	if (argsParser.empty) {
+		return UnaryOperationRegisterIDs(registerDst, registerDst);
+	}
+
+	argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+	const registerSrc = state.addOrResolveRegister(argsParser.front.data);
+	argsParser.popFront();
+
+	return UnaryOperationRegisterIDs(registerDst, registerSrc);
+}
+
 private template isRegisterID(T) {
 	import std.traits : Unqual;
 
@@ -713,30 +742,15 @@ struct ISA {
 
 	@Op("lnot")
 	struct LogicalNotInstruction {
-		RegisterID dst;
-		RegisterID src;
+		UnaryOperationRegisterIDs registerIDs;
 
 		void execute(Registers rg) const @safe {
-			rg[dst] = rg[src].match!(x => !x);
+			rg[registerIDs.dst] = rg[registerIDs.src].match!(x => !x);
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
-			argsParser.setupConstraints(1, 2);
-
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
-			const registerDst = state.addOrResolveRegister(argsParser.front.data);
-			argsParser.popFront();
-
-			if (argsParser.empty) {
-				state.ir ~= Instruction(typeof(this)(registerDst, registerDst));
-				return;
-			}
-
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
-			const registerSrc = state.addOrResolveRegister(argsParser.front.data);
-			argsParser.popFront();
-
-			state.ir ~= Instruction(typeof(this)(registerDst, registerSrc));
+			const registerIDs = parseUnaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
 		}
 	}
 
