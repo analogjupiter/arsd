@@ -884,6 +884,15 @@ Variable parseLiteral(AssemblyToken token) @safe {
 					? Variable(-token.data[3 .. $].to!int(16))
 					: Variable( token.data[2 .. $].to!int(16));
 			}
+
+			const isBinary = ((token.flags & Flag.base2) == Flag.base2);
+			if (isBinary){
+				const isNegative = ((token.flags & Flag.negative) == Flag.negative);
+				return (isNegative)
+					? Variable(-token.data[3 .. $].to!int(2))
+					: Variable( token.data[2 .. $].to!int(2));
+			}
+
 			return parseLiteral!int(token.data);
 			// dfmt on
 
@@ -1098,6 +1107,34 @@ struct AssemblyLexer {
 		return makeToken(Token.Type.literalInteger, _source.length, flags);
 	}
 
+	private void lexBinaryLiteral(bool negativeNumber) {
+		// skip "0b"/"-0b" prefix
+		const scanOffset = (negativeNumber) ? 3 : 2;
+
+		// dfmt off
+		const flags = (negativeNumber)
+			? Token.Flag.base2 | Token.Flag.negative
+			: Token.Flag.base2;
+		// dfmt on
+
+		foreach (size_t idx, char c; _source[scanOffset .. $]) {
+			if (c == '0' || c == '1' || c == '_') {
+				continue;
+			}
+
+			if (c == '.') {
+				throw new AssemblyLexerException(
+					"Binary floating-point literals are not supported.",
+					this.makeLocation(idx + scanOffset)
+				);
+			}
+
+			return makeToken(Token.Type.literalInteger, (idx + scanOffset), flags);
+		}
+
+		return makeToken(Token.Type.literalInteger, _source.length, flags);
+	}
+
 	private void lexNumericLiteral() {
 		const negativeNumber = (_source[0] == '-');
 		const scanOffset = (negativeNumber) ? 1 : 0;
@@ -1110,7 +1147,7 @@ struct AssemblyLexer {
 			}
 
 			if (second == 'b') {
-				// TODO: binary literals
+				return this.lexBinaryLiteral(negativeNumber);
 			}
 
 			if (second == 'o') {
@@ -2532,6 +2569,12 @@ version (MindyscriptEmulatorAppMain) {
 	// integer literals
 	assert(assemble("LDI x,7\nRET x").evaluateSafe().get!int == 7);
 	assert(assemble("LDI x,-7\nRET x").evaluateSafe().get!int == -7);
+
+	// binary integer literals
+	assert(assemble("LDI x,0b10\nRET x").evaluateSafe().get!int == 0b10);
+	assert(assemble("LDI x,0b010\nRET x").evaluateSafe().get!int == 0b10);
+	assert(assemble("LDI x,-0b10\nRET x").evaluateSafe().get!int == -0b10);
+	assert(assemble("LDI x,-0b010\nRET x").evaluateSafe().get!int == -0b10);
 
 	// hexadecimal integer literals
 	assert(assemble("LDI x,0x7\nRET x").evaluateSafe().get!int == 0x7);
