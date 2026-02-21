@@ -839,6 +839,48 @@ struct ISA {
 		}
 	}
 
+	@Op("shl")
+	struct ShiftLeftInstruction {
+		BinaryOperationRegisterIDs registerIDs;
+
+		void execute(Registers rg) const @safe {
+			executeOperator!("lhs << rhs", false)(rg, registerIDs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			const registerIDs = parseBinaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
+		}
+	}
+
+	@Op("shr")
+	struct ShiftRightInstruction {
+		BinaryOperationRegisterIDs registerIDs;
+
+		void execute(Registers rg) const @safe {
+			executeOperator!("lhs >> rhs", false)(rg, registerIDs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			const registerIDs = parseBinaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
+		}
+	}
+
+	@Op("shru")
+	struct ShiftRightUnsignedInstruction {
+		BinaryOperationRegisterIDs registerIDs;
+
+		void execute(Registers rg) const @safe {
+			executeOperator!("lhs >>> rhs", false)(rg, registerIDs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			const registerIDs = parseBinaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
+		}
+	}
+
 	@Op("sub")
 	struct SubtractInstruction {
 		BinaryOperationRegisterIDs registerIDs;
@@ -2670,6 +2712,17 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI a,10\nLDI b,20\nMOV b,a\nRET b").evaluateSafe().get!int == 10);
 	assert(assemble("LDI a,10\nMOV a,a\nRET a").evaluateSafe().get!int == 10);
 	assert(assemble("LDI a,10\nLDI b,20\nMOV b,a\nMOV b,b\nRET b").evaluateSafe().get!int == 10);
+}
+
+// integer bitshifting
+@safe unittest {
+	assert(assemble("LDI x,0b0110\nLDI s,1\nSHL r,x,s\nRET r").evaluateSafe().get!int == 0b1100);
+	assert(assemble("LDI x,-0b0110\nLDI s,1\nSHL r,x,s\nRET r").evaluateSafe().get!int == -0b1100);
+	assert(assemble("LDI x,0b0110\nLDI s,1\nSHR r,x,s\nRET r").evaluateSafe().get!int == 0b0011);
+	assert(assemble("LDI x,-0b0110\nLDI s,1\nSHR r,x,s\nRET r").evaluateSafe().get!int == -0b0011);
+
+	enum shruResult = 0b01111111_11111111_11111111_1111_1101;
+	assert(assemble("LDI x,-0b0110\nLDI s,1\nSHRU r,x,s\nRET r").evaluateSafe().get!int == shruResult);
 }
 
 // integer arithmetic
