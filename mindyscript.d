@@ -191,6 +191,11 @@ alias Variable = std.sumtype.SumType!(
 struct VMVoid {
 }
 
+private {
+	enum variableTypeNameOf(alias T) = __traits(fullyQualifiedName, T);
+	alias variableTypeNames = staticMap!(variableTypeNameOf, Variable.Types);
+}
+
 alias ReturnValue = std.sumtype.SumType!(Variable, VMVoid);
 
 enum isVariableType(T) = (staticIndexOf!(T, Variable.Types) >= 0);
@@ -608,6 +613,88 @@ struct ISA {
 			const returnedValue = state.addOrResolveRegister(identifier1st);
 			const linkID = state.addOrResolveFunctionLink(identifier2nd);
 			state.ir ~= Instruction(typeof(this)(linkID, returnedValue, false));
+		}
+	}
+
+	@Op("cast")
+	struct CastInstruction {
+		UnaryOperationRegisterIDs registerIDs;
+		size_t targetType;
+
+		void execute(Registers rg) const @safe {
+			Variable doCast() {
+				static Variable castOrThrow(TSrc, TDst)(TSrc x) {
+					static if (__traits(compiles, cast(TDst) x)) {
+						return Variable(cast(TDst) x);
+					}
+					else {
+						throw new UnsupportedCastException!(TSrc, TDst)();
+					}
+				}
+
+				// dfmt off
+				switch (targetType) {
+					static foreach (idx, TDst; Variable.Types) {
+						case idx: {
+							alias handler = (x) => castOrThrow!(typeof(x), TDst)(x);
+							return match!handler(rg[registerIDs.src]);
+						}
+					}
+
+					default:
+						throw new CastException("Invalid target type for CAST instruction.");
+				}
+				// dfmt on
+			}
+
+			rg[registerIDs.dst] = doCast();
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.setupConstraints(2, 3);
+
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const identifier1st = argsParser.front;
+			argsParser.popFront();
+
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const identifier2nd = argsParser.front;
+			argsParser.popFront();
+
+			UnaryOperationRegisterIDs unary;
+			ptrdiff_t targetType = -1;
+			AssemblyToken identifierTargetType;
+
+			if (argsParser.empty) {
+				const registerID = state.addOrResolveRegister(identifier1st.data);
+				unary = UnaryOperationRegisterIDs(registerID, registerID);
+				identifierTargetType = identifier2nd;
+			}
+			else {
+				const registerDst = state.addOrResolveRegister(identifier1st.data);
+				const registerSrc = state.addOrResolveRegister(identifier2nd.data);
+				unary = UnaryOperationRegisterIDs(registerDst, registerSrc);
+
+				argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+				identifierTargetType = argsParser.front;
+				argsParser.popFront();
+			}
+
+			foreach (typeIdx, typeName; variableTypeNames) {
+				if (identifierTargetType.data == typeName) {
+					targetType = typeIdx;
+					break;
+				}
+			}
+
+			if (targetType < 0) {
+				throw new AssemblerException(
+					"`" ~ identifierTargetType.data.idup ~ "` is not a supported cast target type.",
+					identifierTargetType.location,
+				);
+			}
+
+			state.ir ~= Instruction(typeof(this)(unary, targetType));
 		}
 	}
 
@@ -2071,6 +2158,24 @@ final class IncompatibleTypeException(Type) : VirtualMachineException {
 	}
 }
 
+class CastException : VirtualMachineException {
+	private this(istring message, istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
+		super(message, file, line, next);
+	}
+}
+
+final class UnsupportedCastException(TSrc, TDst) : VirtualMachineException {
+	alias From = TSrc;
+	alias To = TDst;
+
+	this(istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
+		enum srcStr = __traits(fullyQualifiedName, TSrc);
+		enum dstStr = __traits(fullyQualifiedName, TDst);
+		static immutable msg = "Casting from `" ~ srcStr ~ "` to `" ~ dstStr ~ "` is not supported.";
+		super(msg, file, line, next);
+	}
+}
+
 struct StackSettings {
 	size_t sizeDefault = 4096;
 	size_t sizeIncrements = 2048;
@@ -2802,6 +2907,13 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI a,10\nLDI b,20\nMOV b,a\nRET b").evaluateSafe().get!int == 10);
 	assert(assemble("LDI a,10\nMOV a,a\nRET a").evaluateSafe().get!int == 10);
 	assert(assemble("LDI a,10\nLDI b,20\nMOV b,a\nMOV b,b\nRET b").evaluateSafe().get!int == 10);
+}
+
+// type casting
+@safe unittest {
+	assert(assemble("LDI a,0x41\nCAST a,a,char\nRET a").evaluateSafe().get!char == 'A');
+	assert(assemble("LDI a,0x41\nCAST a,  char\nRET a").evaluateSafe().get!char == 'A');
+	assert(assemble("LDI a,1   \nCAST a,  bool\nRET a").evaluateSafe().get!bool == true);
 }
 
 // integer bitshifting
