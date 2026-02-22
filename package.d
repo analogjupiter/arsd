@@ -128,7 +128,11 @@
 			See [arsd.database_generation] as well as parts in [arsd.database].
 
 	$(H3 Scripting)
-		See [arsd.script]
+		See [arsd.script] —
+		The “classic” arsd script interpreter. Builds upon `jsvar`.
+
+		Tinkerers might also be interested in [arsd.mindyscript] —
+		A bytecode (IR) interpreter featuring an abstract register-based virtual machine (VM).
 
 	$(H3 Email)
 		$(LIST
