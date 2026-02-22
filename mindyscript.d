@@ -306,6 +306,39 @@ struct UnaryOperationRegisterIDs {
 	RegisterID src;
 }
 
+pragma(inline, true) void executeOperator(string op, bool null_ = true, bool fp = true)(
+	Registers registers,
+	UnaryOperationRegisterIDs registerIDs,
+) @safe {
+	import std.traits;
+
+	alias genericHandler = (x) {
+		alias X = typeof(x);
+
+		enum isNull = is(X == typeof(null));
+		static if (isNull && !null_) {
+			alias incompatibleType = X;
+		}
+
+		static if (isFloatingPoint!X && !fp) {
+			alias incompatibleType = X;
+		}
+
+		static if (is(incompatibleType)) {
+			enum msg = "`" ~ typeof(x).stringof ~ "` is not a suitable type for `" ~ op ~ "`.";
+			throw new IncompatibleTypeException!X(msg);
+		}
+		else {
+			registers[registerIDs.dst] = mixin(op);
+		}
+	};
+
+	alias handlers = AliasSeq!(
+		genericHandler,
+	);
+	match!handlers(registers[registerIDs.src]);
+}
+
 private UnaryOperationRegisterIDs parseUnaryOperation(
 	ref AssemblyInstructionArgumentsParser argsParser,
 	ref Assembler.State state,
@@ -745,7 +778,7 @@ struct ISA {
 		UnaryOperationRegisterIDs registerIDs;
 
 		void execute(Registers rg) const @safe {
-			rg[registerIDs.dst] = rg[registerIDs.src].match!(x => !x);
+			executeOperator!"!x"(rg, registerIDs);
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
