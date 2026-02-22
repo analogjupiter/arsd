@@ -32,6 +32,13 @@ Planned changes:
     * Make arsd.terminal use the arsd.core event loop sometimes. This might not be a breaking change since it might be a new function and thus may come early.
     * Make arsd.cgi integrate with the arsd.core event loop in some mode. Again, unlikely to be an actual break so may come early.
 
+arsd.mindyscript was added.
+The name is a pun fusing *Min(imal) D script (interpreter)* with the name of its original author (*Mindy*).
+It’s a bytecode (IR) interpreter, featuring an abstract register-based virtual machine (VM).
+This module provides a suite of utilities for the development of interpreted languages,
+i.a. an ISA for intermediate representation (IR), an assembler, a VM, an emulator.
+For most users, arsd.script remains the scripting engine of choice.
+
 ## 12.0
 
 Released: Planned for some time between January and May 2025
