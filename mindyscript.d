@@ -311,7 +311,12 @@ struct UnaryOperationRegisterIDs {
 	RegisterID src;
 }
 
-pragma(inline, true) void executeOperator(string op, bool null_ = true, bool fp = true)(
+pragma(inline, true) void executeOperator(
+	string op,
+	bool null_ = true,
+	bool bool_ = true,
+	bool fp = true,
+)(
 	Registers registers,
 	UnaryOperationRegisterIDs registerIDs,
 ) @safe {
@@ -322,6 +327,10 @@ pragma(inline, true) void executeOperator(string op, bool null_ = true, bool fp 
 
 		enum isNull = is(X == typeof(null));
 		static if (isNull && !null_) {
+			alias incompatibleType = X;
+		}
+
+		static if (isBoolean!X && !bool_) {
 			alias incompatibleType = X;
 		}
 
@@ -543,7 +552,7 @@ struct ISA {
 		UnaryOperationRegisterIDs registerIDs;
 
 		void execute(Registers rg) const @safe {
-			executeOperator!("~x", false, false)(rg, registerIDs);
+			executeOperator!("~x", false, true, false)(rg, registerIDs);
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
@@ -698,6 +707,20 @@ struct ISA {
 		}
 	}
 
+	@Op("dec")
+	struct DecrementInstruction {
+		UnaryOperationRegisterIDs registerIDs;
+
+		void execute(Registers rg) const @safe {
+			executeOperator!("--x", false, false, false)(rg, registerIDs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			const registerIDs = parseUnaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
+		}
+	}
+
 	@Op("div")
 	struct DivideInstruction {
 		BinaryOperationRegisterIDs registerIDs;
@@ -708,6 +731,20 @@ struct ISA {
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
 			const registerIDs = parseBinaryOperation(argsParser, state);
+			state.ir ~= Instruction(typeof(this)(registerIDs));
+		}
+	}
+
+	@Op("inc")
+	struct IncrementInstruction {
+		UnaryOperationRegisterIDs registerIDs;
+
+		void execute(Registers rg) const @safe {
+			executeOperator!("++x", false, false, false)(rg, registerIDs);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			const registerIDs = parseUnaryOperation(argsParser, state);
 			state.ir ~= Instruction(typeof(this)(registerIDs));
 		}
 	}
@@ -2950,6 +2987,14 @@ version (MindyscriptEmulatorAppMain) {
 	// reduce integers modulo
 	assert(assemble("LDI a,32\nLDI b,10\nMOD c,a,b\nRET c").evaluateSafe().get!int == 2);
 	assert(assemble("LDI a,32\nLDI b,10\nMOD a,a,b\nRET a").evaluateSafe().get!int == 2);
+
+	// increment integers
+	assert(assemble("LDI a,7\nINC c,a\nRET c").evaluateSafe().get!int == 8);
+	assert(assemble("LDI a,7\nINC a,a\nRET a").evaluateSafe().get!int == 8);
+
+	// decrement integers
+	assert(assemble("LDI a,7\nDEC c,a\nRET c").evaluateSafe().get!int == 6);
+	assert(assemble("LDI a,7\nDEC a,a\nRET a").evaluateSafe().get!int == 6);
 }
 
 // floating-point arithmetic
