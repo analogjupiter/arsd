@@ -665,7 +665,7 @@ struct ISA {
 			// save return value
 			const returnedValue = state.addOrResolveRegister(identifier1st);
 			const linkID = state.addOrResolveFunctionLink(identifier2nd);
-			state.ir ~= Instruction(typeof(this)(false, returnedValue, linkID, passArgs[]));
+			state.ir ~= Instruction(typeof(this)(voidReturnValue, returnedValue, linkID, passArgs[]));
 		}
 	}
 
@@ -1944,6 +1944,7 @@ struct AssemblyInstructionArgumentsParser {
 			case AssemblyToken.Type.literalInteger:
 			case AssemblyToken.Type.literalNull:
 			case AssemblyToken.Type.literalString:
+			case AssemblyToken.Type.void_:
 				_state = State.parameter;
 				++_argumentCount;
 				return;
@@ -3307,4 +3308,14 @@ version (MindyscriptEmulatorAppMain) {
 	auto vm = new SafeVirtualMachine();
 	vm.register("sum", sum);
 	assert(vm.evaluate(main).get!int == 15);
+}
+
+// void function call with arguments
+@safe unittest {
+	auto subp = assemble("REG a\nREG b\nADD a,a,b\nLDI c,15\nJEQ success,a,c\nCRASH\nsuccess: RET\n");
+	auto main = assemble("LDI x,7\nLDI y,8\nCALL void,subp,x,y\n");
+
+	auto vm = new SafeVirtualMachine();
+	vm.register("subp", subp);
+	assert(vm.boot(main).isSuccess);
 }
