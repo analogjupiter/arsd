@@ -715,7 +715,7 @@ struct ISA {
 			argsParser.popFront();
 
 			UnaryOperationRegisterIDs unary;
-			ptrdiff_t targetType = -1;
+			ptrdiff_t targetType = -1; // @suppress(dscanner.suspicious.label_var_same_name)
 			AssemblyToken identifierTargetType;
 
 			if (argsParser.empty) {
