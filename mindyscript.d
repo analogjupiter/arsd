@@ -751,6 +751,18 @@ struct ISA {
 		}
 	}
 
+	@Op("crash")
+	struct CrashInstruction {
+		void execute(Registers rg) const @safe {
+			throw new ProgramCrashException(ProgramCrashException.Reason.crashInstruction);
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.setupConstraints(0, 0);
+			state.ir ~= Instruction(typeof(this)());
+		}
+	}
+
 	@Op("dec")
 	struct DecrementInstruction {
 		UnaryOperationRegisterIDs registerIDs;
@@ -2321,6 +2333,22 @@ final class UnsupportedCastException(TSrc, TDst) : VirtualMachineException {
 	}
 }
 
+class ProgramCrashException : VirtualMachineException {
+	enum Reason {
+		unknown,
+		crashInstruction,
+		assertionFailure,
+	}
+
+	Reason reason;
+
+	this(Reason reason, istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
+		this.reason = reason;
+		const msg = "Program crashed. Reason: `" ~ this.reason.to!istring() ~ "`";
+		super(msg, file, line, next);
+	}
+}
+
 struct StackSettings {
 	size_t sizeDefault = 4096;
 	size_t sizeIncrements = 2048;
@@ -3023,6 +3051,14 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI a,0\nRET a").bootSafe().isSuccess);
 	assert(assemble("LDI b, 1\nRET b").bootSafe().isFailure);
 	assert(assemble("LDI b,1\nRET b").bootSafe().isFailure);
+}
+
+
+// crash instruction
+@safe unittest {
+	import std.exception : assertThrown;
+
+	assertThrown!ProgramCrashException(assemble("CRASH\n").executeSafe());
 }
 
 // literals
