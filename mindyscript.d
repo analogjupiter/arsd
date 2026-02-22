@@ -512,6 +512,8 @@ private void parseJumpInstruction(InstructionType)(
 	Instruction Set Architecture
  +/
 struct ISA {
+	import std.traits : hasUDA;
+
 	@disable this();
 
 	private struct Op {
@@ -519,6 +521,10 @@ struct ISA {
 	}
 
 	private struct Jump;
+	private struct Pseudo;
+
+	static enum isJumpInstruction(InstructionType) = hasUDA!(InstructionType, Jump);
+	static enum isPseudoInstruction(InstructionType) = hasUDA!(InstructionType, Pseudo);
 
 	@Op("add")
 	struct AddInstruction {
@@ -564,16 +570,28 @@ struct ISA {
 
 	@Op("call")
 	struct CallInstruction {
+		import std.typecons : Tuple;
+
 		private {
 			alias Loader = LinkedProgram* delegate(string) @safe;
-			alias Executor = ReturnValue delegate(const LinkedProgram program) @safe;
+			alias Executor = Tuple!(
+				ReturnValue delegate(const LinkedProgram program) @safe,
+				ReturnValue delegate(const LinkedProgram program, Stack.Frame stackFrame) @safe,
+			);
 		}
 
-		FunctionLinkID linkID;
+		bool discardReturnedValue;
 		RegisterID returnedValue;
-		bool discardReturnValue;
+		FunctionLinkID linkID;
+		RegisterID[] passArgs;
 
-		void execute(Registers rg, inout(ProgramLink)[] programLinkTable, Loader load, Executor execute) const @safe {
+		void execute(
+			Registers rg,
+			inout(ProgramLink)[] programLinkTable,
+			Stack stack,
+			Loader load,
+			Executor execute,
+		) const @safe {
 			const calleeLink = programLinkTable[linkID];
 
 			// dfmt off
@@ -589,9 +607,22 @@ struct ISA {
 			);
 			// dfmt on
 
-			ReturnValue retVal = execute(*callee);
+			ReturnValue retVal;
 
-			if (discardReturnValue) {
+			if (passArgs.length > 0) {
+				Stack.Frame stackFrameCallee = stack.push(callee.program.registerCount);
+				foreach (idx, registerArg; passArgs) {
+					stackFrameCallee.data[idx] = rg[registerArg];
+				}
+
+				retVal = execute[1](*callee, stackFrameCallee);
+				stack.pop(stackFrameCallee);
+			}
+			else {
+				retVal = execute[0](*callee);
+			}
+
+			if (discardReturnedValue) {
 				return;
 			}
 
@@ -602,16 +633,20 @@ struct ISA {
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
-			argsParser.setupConstraints(1, 2);
-			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			argsParser.setupConstraints(1, ptrdiff_t.max);
 
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier, AssemblyToken.Type.void_);
+			const voidReturnValue = (argsParser.front.type == AssemblyToken.Type.void_);
+			if (voidReturnValue) {
+				argsParser.setupConstraints(2, ptrdiff_t.max);
+			}
 			const identifier1st = argsParser.front.data;
 			argsParser.popFront();
 
 			if (argsParser.empty) {
 				// discard return value
 				const linkID = state.addOrResolveFunctionLink(identifier1st);
-				state.ir ~= Instruction(typeof(this)(linkID, RegisterID.max, true));
+				state.ir ~= Instruction(typeof(this)(true, RegisterID.max, linkID, null));
 				return;
 			}
 
@@ -619,10 +654,18 @@ struct ISA {
 			const identifier2nd = argsParser.front.data;
 			argsParser.popFront();
 
+			auto passArgs = appender!(RegisterID[]);
+			while (!argsParser.empty) {
+				argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+				const callArgIdentifier = argsParser.front.data;
+				passArgs ~= state.addOrResolveRegister(callArgIdentifier);
+				argsParser.popFront();
+			}
+
 			// save return value
 			const returnedValue = state.addOrResolveRegister(identifier1st);
 			const linkID = state.addOrResolveFunctionLink(identifier2nd);
-			state.ir ~= Instruction(typeof(this)(linkID, returnedValue, false));
+			state.ir ~= Instruction(typeof(this)(false, returnedValue, linkID, passArgs[]));
 		}
 	}
 
@@ -1024,6 +1067,38 @@ struct ISA {
 		}
 	}
 
+	@Op("reg")
+	@Pseudo
+	struct RegisterInstruction {
+		RegisterID registerID;
+
+		void execute(Registers) const @safe {
+			return; // Do nothing.
+		}
+
+		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
+			argsParser.setupConstraints(1, 1);
+
+			if (state.ir.length > 0) {
+				throw new AssemblerException(
+					"Pseudo-instruction `reg` must not occur beyond the very beginning of a program.",
+					argsParser.instruction.location,
+				);
+			}
+
+			argsParser.throwIfUnexpectedTokenType(AssemblyToken.Type.identifier);
+			const identifier = argsParser.front.data;
+			argsParser.popFront();
+
+			const registerID = state.addOrResolveRegister(identifier);
+
+			// Not appended to IR.
+			version (none) {
+				state.ir ~= Instruction(typeof(this)(registerID));
+			}
+		}
+	}
+
 	@Op("ret")
 	struct ReturnInstruction {
 		RegisterID a;
@@ -1127,7 +1202,20 @@ struct ISA {
 	template InstructionsSeq() {
 		import std.traits : getSymbolsByUDA;
 
-		alias InstructionsSeq = getSymbolsByUDA!(ISA, ISA.Op);
+		alias InstructionsSeq = Filter!(templateNot!isPseudoInstruction, getSymbolsByUDA!(ISA, ISA.Op));
+	}
+
+	template PseudoInstructionsSeq() {
+		import std.traits : getSymbolsByUDA;
+
+		alias PseudoInstructionsSeq = Filter!(isPseudoInstruction, getSymbolsByUDA!(ISA, ISA.Op));
+	}
+
+	template AllInstructionsSeq() {
+		alias AllInstructionsSeq = AliasSeq!(
+			InstructionsSeq!(),
+			PseudoInstructionsSeq!(),
+		);
 	}
 }
 
@@ -1802,6 +1890,8 @@ struct AssemblyInstructionArgumentsParser {
 
 	AssemblyLexer wrappedLexer() inout => _lexer.wrappedLexer;
 
+	AssemblyToken instruction() inout => _instruction;
+
 	bool empty() const => _lexer.empty;
 
 	AssemblyToken front() const => _lexer.front;
@@ -1900,8 +1990,20 @@ struct Assembler {
 		Location location;
 	}
 
+	private struct IRBuilder {
+		private Appender!(Instruction[]) _appender;
+
+		void clear() @safe {
+			_appender = appender!(Instruction[]);
+		}
+
+		auto opSlice() => _appender.opSlice();
+		auto length() => _appender.length();
+		auto opOpAssign(string op : "~")(Instruction instruction) @trusted => _appender.put(instruction);
+	}
+
 	private static struct State {
-		Appender!(Instruction[]) ir;
+		IRBuilder ir;
 		Appender!(string[]) functionLinks;
 		Label[string] labels;
 		Appender!(LabelPromise[]) labelPromises;
@@ -1989,7 +2091,7 @@ struct Assembler {
 	}
 
 	Program assemble(AssemblyLexer lexer) {
-		_state.ir = appender!(Instruction[])();
+		_state.ir.clear();
 		_state.labels.clear();
 		_state.labelPromises = appender!(LabelPromise[]);
 		_state.registers = appender!(string[])();
@@ -2017,7 +2119,7 @@ struct Assembler {
 
 		// dfmt off
 		parseInstructionSwitch: switch (instructionName) {
-			static foreach (instruction; ISA.InstructionsSeq!()) {
+			static foreach (instruction; ISA.AllInstructionsSeq!()) {
 				case idOf!instruction:
 					auto instrArgsParser = AssemblyInstructionArgumentsParser(lexer);
 					instruction.parse(instrArgsParser, _state);
@@ -2428,13 +2530,19 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 	ReturnValue execute(const scope LinkedProgram linkedProgram) {
 		this.initializeMachine();
-
 		const program = linkedProgram.program;
 
 		Stack.Frame stackFrame = _stack.push(program.registerCount);
 		scope (exit) {
 			_stack.pop(stackFrame);
 		}
+
+		return execute(linkedProgram, stackFrame);
+	}
+
+	ReturnValue execute(const scope LinkedProgram linkedProgram, Stack.Frame stackFrame) {
+		this.initializeMachine();
+		const program = linkedProgram.program;
 
 		ReturnValue returnValue = ReturnValue(VMVoid());
 
@@ -2443,23 +2551,25 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 			// dfmt off
 			alias decodeAndExecute = std.sumtype.match!(
-				(ISA.CallInstruction call) {
-					const ReturnValue delegate(const LinkedProgram) executorTmp = &this.execute;
-					const executor = (() @trusted => cast(ISA.CallInstruction.Executor) executorTmp)(); // sweet lie
-					call.execute(stackFrame.data, linkedProgram.functionLinkTable, &this.load, executor);
+				(const(ISA.CallInstruction) call) {
+					const ReturnValue delegate(const LinkedProgram) executor0Tmp = &this.execute;
+					const ReturnValue delegate(const LinkedProgram, Stack.Frame) executor1Tmp = &this.execute;
+					const executor = (() @trusted => ISA.CallInstruction.Executor( // `@trusted` is a sweet lie.
+						cast(typeof(ISA.CallInstruction.Executor[0])) executor0Tmp,
+						cast(typeof(ISA.CallInstruction.Executor[1])) executor1Tmp,
+					))();
+					call.execute(stackFrame.data, linkedProgram.functionLinkTable, _stack, &this.load, executor);
 				},
-				(ISA.NoOpInstruction nop) {
+				(const ISA.NoOpInstruction nop) {
 					nop.execute();
 				},
-				(ISA.ReturnInstruction ret) {
+				(const ISA.ReturnInstruction ret) {
 					returnValue = ret.execute(stackFrame.data);
 					programCounter = program.ir.length; // break program execution loop
 				},
-				(decodedInstruction) {
-					import std.traits : hasUDA;
-
+				(const decodedInstruction) {
 					alias InstructionType = typeof(decodedInstruction);
-					enum  isJumpInstruction = hasUDA!(InstructionType, ISA.Jump);
+					enum  isJumpInstruction = ISA.isJumpInstruction!InstructionType;
 
 					static if (isJumpInstruction) {
 						const bool didJump = decodedInstruction.execute(stackFrame.data, programCounter);
@@ -3151,4 +3261,14 @@ version (MindyscriptEmulatorAppMain) {
 	auto vm = new SafeVirtualMachine();
 	vm.register("func", func);
 	assert(vm.evaluate(main).get!int == 7);
+}
+
+// function call with arguments
+@safe unittest {
+	auto sum = assemble("REG a\nREG b\nADD a,a,b\nRET a\n");
+	auto main = assemble("LDI x,7\nLDI y,8\nCALL r,sum,x,y\nRET r");
+
+	auto vm = new SafeVirtualMachine();
+	vm.register("sum", sum);
+	assert(vm.evaluate(main).get!int == 15);
 }
