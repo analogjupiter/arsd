@@ -1162,6 +1162,7 @@ struct AssemblyToken {
 		comma,
 		comment,
 		identifier,
+		void_,
 
 		literalBoolean,
 		literalCharacter,
@@ -1357,6 +1358,10 @@ struct AssemblyLexer {
 
 		case "null":
 			type = Token.Type.literalNull;
+			break;
+
+		case "void":
+			type = Token.Type.void_;
 			break;
 
 		default:
