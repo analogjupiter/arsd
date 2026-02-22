@@ -10,6 +10,7 @@
 	- dmd     -version=MindyscriptEmulatorAppMain -run mindyscript.d
 	- ldc2 --d-version=MindyscriptEmulatorAppMain -run mindyscript.d
 	- rdmd    -version=MindyscriptEmulatorAppMain      mindyscript.d
+	- dub run --config=app arsd-official:mindyscript
 	- ./mindyscript.d
  +/
 /+

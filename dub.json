@@ -819,6 +819,26 @@
 			"dflags-dmd": ["-mv=arsd.ini=$PACKAGE_DIR/ini.d"],
 			"dflags-ldc": ["--mv=arsd.ini=$PACKAGE_DIR/ini.d"],
 			"dflags-gdc": ["-fmodule-file=arsd.ini=$PACKAGE_DIR/ini.d"]
+		},
+		{
+			"name": "mindyscript",
+			"description": "Minimal D script interpreter - bytecode (IR) interpreter, abstract register-based virtual machine (VM).",
+			"targetType": "library",
+			"dflags-dmd": ["-mv=arsd.script=$PACKAGE_DIR/mindyscript.d"],
+			"dflags-ldc": ["--mv=arsd.script=$PACKAGE_DIR/mindyscript.d"],
+			"dflags-gdc": ["-fmodule-file=arsd.script=$PACKAGE_DIR/mindyscript.d"],
+			"sourceFiles": ["mindyscript.d"],
+			"configurations": [
+				{
+					"name": "library",
+					"targetType": "library"
+				},
+				{
+					"name": "app",
+					"targetType": "executable",
+					"versions": ["MindyscriptEmulatorAppMain"]
+				}
+			]
 		}
 	]
 }
