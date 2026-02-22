@@ -2861,8 +2861,8 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI a,0b0110\nLDI b,0b1010\nXOR c,a,b\nRET c").evaluateSafe().get!int == 0b1100);
 	assert(assemble("LDI a,0b0110\nLDI b,0b1010\nAND c,a,b\nRET c").evaluateSafe().get!int == 0b0010);
 
-	assert(assemble("LDI a,0b0110\nBNOT a,a\nRET a").evaluateSafe().get!int == 0b0_1111111_111111111_11111111_1111_1001);
-	assert(assemble("LDI a,0b1111\nBNOT a,a\nRET a").evaluateSafe().get!int == 0b0_1111111_111111111_11111111_1111_0000);
+	assert(assemble("LDI a,0b0110\nBNOT a  \nRET a").evaluateSafe().get!int == 0b0_1111111_111111111_11111111_1111_1001);
+	assert(assemble("LDI a,0b1111\nBNOT a  \nRET a").evaluateSafe().get!int == 0b0_1111111_111111111_11111111_1111_0000);
 	assert(assemble("LDI a,0b0110\nBNOT r,a\nRET r").evaluateSafe().get!int == 0b0_1111111_111111111_11111111_1111_1001);
 	assert(assemble("LDI a,0b1111\nBNOT r,a\nRET r").evaluateSafe().get!int == 0b0_1111111_111111111_11111111_1111_0000);
 
