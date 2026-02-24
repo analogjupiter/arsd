@@ -1310,7 +1310,7 @@ Variable parseLiteral(AssemblyToken token) @safe {
 			return parseLiteral!char(token.data[1 .. 2]);
 
 		case Token.Type.literalFloatingPoint:
-			return parseLiteral!float(token.data);
+			return parseLiteral!double(token.data);
 
 		case Token.Type.literalInteger:
 			// dfmt off
@@ -3120,8 +3120,8 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI x,-0x77\nRET x").evaluateSafe().get!int == -0x77);
 
 	// floating-point literals
-	assert(assemble("LDI x,7.0\nRET x").evaluateSafe().get!float == 7.0f);
-	assert(assemble("LDI x,-7.0\nRET x").evaluateSafe().get!float == -7.0f);
+	assert(assemble("LDI x,7.0\nRET x").evaluateSafe().get!double == 7.0f);
+	assert(assemble("LDI x,-7.0\nRET x").evaluateSafe().get!double == -7.0f);
 }
 
 // move
@@ -3184,17 +3184,17 @@ version (MindyscriptEmulatorAppMain) {
 
 // floating-point arithmetic
 @safe unittest {
-	assert(assemble("LDI a,-4.1\nLDI b,-3.0\nADD c,a,b\nRET c").evaluateSafe().get!float.round() == -7);
-	assert(assemble("LDI a,4.1\nLDI b,3.0\nADD c,a,b\nRET c").evaluateSafe().get!float.round() == 7);
-	assert(assemble("LDI a,4.1\nLDI b,3.0\nADD a,a,b\nRET a").evaluateSafe().get!float.round() == 7);
-	assert(assemble("LDI a,4  \nLDI b,3.0\nADD c,a,b\nRET c").evaluateSafe().get!float.round() == 7);
-	assert(assemble("LDI a,4.0\nLDI b,3  \nADD c,a,b\nRET c").evaluateSafe().get!float.round() == 7);
+	assert(assemble("LDI a,-4.1\nLDI b,-3.0\nADD c,a,b\nRET c").evaluateSafe().get!double.round() == -7);
+	assert(assemble("LDI a,4.1\nLDI b,3.0\nADD c,a,b\nRET c").evaluateSafe().get!double.round() == 7);
+	assert(assemble("LDI a,4.1\nLDI b,3.0\nADD a,a,b\nRET a").evaluateSafe().get!double.round() == 7);
+	assert(assemble("LDI a,4  \nLDI b,3.0\nADD c,a,b\nRET c").evaluateSafe().get!double.round() == 7);
+	assert(assemble("LDI a,4.0\nLDI b,3  \nADD c,a,b\nRET c").evaluateSafe().get!double.round() == 7);
 
-	assert(assemble("LDI a,4.9\nLDI b,3.1\nSUB c,a,b\nRET c").evaluateSafe().get!float.round() == 2);
+	assert(assemble("LDI a,4.9\nLDI b,3.1\nSUB c,a,b\nRET c").evaluateSafe().get!double.round() == 2);
 
-	assert((assemble("LDI a,5.0\nLDI b,2.5\nMUL c,a,b\nRET c").evaluateSafe().get!float * 10).round() == 125);
-	assert((assemble("LDI a,7.0\nLDI b,2.0\nDIV c,a,b\nRET c").evaluateSafe().get!float * 10).round() == 35);
-	assert(assemble("LDI a,8.0\nLDI b,3.0\nMOD c,a,b\nRET c").evaluateSafe().get!float.round() == 2);
+	assert((assemble("LDI a,5.0\nLDI b,2.5\nMUL c,a,b\nRET c").evaluateSafe().get!double * 10).round() == 125);
+	assert((assemble("LDI a,7.0\nLDI b,2.0\nDIV c,a,b\nRET c").evaluateSafe().get!double * 10).round() == 35);
+	assert(assemble("LDI a,8.0\nLDI b,3.0\nMOD c,a,b\nRET c").evaluateSafe().get!double.round() == 2);
 }
 
 // boolean algebra
