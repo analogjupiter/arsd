@@ -26,6 +26,7 @@ import std.array : appender;
 import std.conv : to;
 import std.math : round;
 import std.meta;
+static import std.conv;
 static import std.sumtype;
 static import std.typecons;
 
@@ -184,9 +185,18 @@ private mixin template LocationProperty(alias loc) {
 alias Variable = std.sumtype.SumType!(
 	typeof(null),
 	bool,
+	byte,
 	char,
+	double,
 	float,
 	int,
+	long,
+	real,
+	short,
+	ubyte,
+	uint,
+	ulong,
+	ushort,
 );
 
 struct VMVoid {
@@ -1320,7 +1330,24 @@ Variable parseLiteral(AssemblyToken token) @safe {
 					: Variable( token.data[2 .. $].to!int(2));
 			}
 
-			return parseLiteral!int(token.data);
+			try {
+				return parseLiteral!int(token.data);
+			} catch (LiteralParserException ex) {
+				if ((ex.next !is null) && (cast(std.conv.ConvOverflowException) ex.next)) {
+					try {
+						return parseLiteral!long(token.data);
+					} catch(LiteralParserException ex2) {
+						const isNegative = ((token.flags & Flag.negative) == Flag.negative);
+						if (!isNegative && (ex2.next !is null) && (cast(std.conv.ConvOverflowException) ex2.next)) {
+							return parseLiteral!ulong(token.data);
+						}
+
+						throw ex2;
+					}
+				}
+
+				throw ex;
+			}
 			// dfmt on
 
 		case Token.Type.literalNull:
@@ -3054,7 +3081,6 @@ version (MindyscriptEmulatorAppMain) {
 	assert(assemble("LDI b,1\nRET b").bootSafe().isFailure);
 }
 
-
 // crash instruction
 @safe unittest {
 	import std.exception : assertThrown;
@@ -3074,6 +3100,12 @@ version (MindyscriptEmulatorAppMain) {
 	// integer literals
 	assert(assemble("LDI x,7\nRET x").evaluateSafe().get!int == 7);
 	assert(assemble("LDI x,-7\nRET x").evaluateSafe().get!int == -7);
+
+	// long integer literals
+	assert(assemble("LDI x,4294967295\nRET x").evaluateSafe().get!long == uint.max);
+	assert(assemble("LDI x,-9223372036854775808\nRET x").evaluateSafe().get!long == long.min);
+	assert(assemble("LDI x, 9223372036854775807\nRET x").evaluateSafe().get!long == long.max);
+	assert(assemble("LDI x,18446744073709551615\nRET x").evaluateSafe().get!ulong == ulong.max);
 
 	// binary integer literals
 	assert(assemble("LDI x,0b10\nRET x").evaluateSafe().get!int == 0b10);
