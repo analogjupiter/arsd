@@ -3233,6 +3233,28 @@ template match(Handlers...) {
 										) {
 											return handler(a._storage.loadRef!Ta, b._storage.loadRef!Tb);
 										}
+
+										else static if (
+											__traits(compiles, handler(b._storage.load!Tb, a._storage.load!Ta))
+										) {
+											return handler(b._storage.load!Tb, a._storage.load!Ta);
+										}
+										else static if (
+											__traits(compiles, handler(b._storage.loadRef!Tb, a._storage.load!Ta))
+										) {
+											return handler(b._storage.loadRef!Tb, a._storage.load!Ta);
+										}
+										else static if (
+											__traits(compiles, handler(b._storage.load!Tb, a._storage.loadRef!Ta))
+										) {
+											return handler(b._storage.load!Tb, a._storage.loadRef!Ta);
+										}
+										else static if (
+											__traits(compiles, handler(b._storage.loadRef!Tb, a._storage.loadRef!Ta))
+										) {
+											return handler(b._storage.loadRef!Tb, a._storage.loadRef!Ta);
+										}
+
 										else {
 											mixin("break swTagA_" ~ idx.stringof ~ "_B_" ~ idxA.stringof ~ ";");
 										}
@@ -3257,9 +3279,6 @@ template match(Handlers...) {
 					static if (__traits(compiles, handler(a._storage.load!TTa, b._storage.load!TTb))) {
 						return handler(a._storage.load!TTa, b._storage.load!TTb);
 					}
-					else static if (__traits(compiles, handler(b._storage.load!TTb, a._storage.load!TTa))) {
-						return handler(b._storage.load!TTb, a._storage.load!TTa);
-					}
 					else static if (__traits(compiles, handler(a._storage.loadRef!TTa, b._storage.load!TTb))) {
 						return handler(a._storage.loadRef!TTa, b._storage.load!TTb);
 					}
@@ -3268,6 +3287,19 @@ template match(Handlers...) {
 					}
 					else static if (__traits(compiles, handler(a._storage.loadRef!TTa, b._storage.loadRef!TTb))) {
 						return handler(a._storage.loadRef!TTa, b._storage.loadRef!TTb);
+					}
+
+					else static if (__traits(compiles, handler(b._storage.load!TTb, a._storage.load!TTa))) {
+						return handler(b._storage.load!TTb, a._storage.load!TTa);
+					}
+					else static if (__traits(compiles, handler(b._storage.loadRef!TTb, a._storage.load!TTa))) {
+						return handler(b._storage.load!TTb, a._storage.loadRef!TTa);
+					}
+					else static if (__traits(compiles, handler(b._storage.load!TTb, a._storage.loadRef!TTa))) {
+						return handler(b._storage.load!TTb, a._storage.loadRef!TTa);
+					}
+					else static if (__traits(compiles, handler(b._storage.loadRef!TTb, a._storage.loadRef!TTa))) {
+						return handler(b._storage.loadRef!TTb, a._storage.loadRef!TTa);
 					}
 				}
 			}
