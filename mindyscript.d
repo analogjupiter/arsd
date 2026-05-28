@@ -27,7 +27,6 @@ import std.conv : to;
 import std.math : round;
 import std.meta;
 static import std.conv;
-static import std.sumtype;
 static import std.typecons;
 
 // === Commons =================================================================
@@ -35,9 +34,6 @@ static import std.typecons;
 private {
 	alias string = const(char)[];
 	alias istring = object.string;
-
-	alias match = std.sumtype.match;
-	alias get = std.sumtype.get;
 }
 
 abstract class MindyscriptException : Exception {
@@ -182,7 +178,7 @@ private mixin template LocationProperty(alias loc) {
 
 // === Type System =============================================================
 
-alias Variable = std.sumtype.SumType!(
+alias Variable = TaggedUnion!(
 	typeof(null),
 	bool,
 	byte,
@@ -207,7 +203,7 @@ private {
 	alias variableTypeNames = staticMap!(variableTypeNameOf, Variable.Types);
 }
 
-alias ReturnValue = std.sumtype.SumType!(Variable, VMVoid);
+alias ReturnValue = TaggedUnion!(Variable, VMVoid);
 
 enum isVariableType(T) = (staticIndexOf!(T, Variable.Types) >= 0);
 
@@ -1241,7 +1237,7 @@ struct ISA {
 	}
 }
 
-alias Instruction = std.sumtype.SumType!(ISA.InstructionsSeq!());
+alias Instruction = TaggedUnion!(ISA.InstructionsSeq!());
 
 template idOf(Instruction) {
 	import std.traits : getUDAs;
@@ -2488,7 +2484,7 @@ private struct LinkedProgramPromise {
 	string identifier;
 }
 
-private alias ProgramLink = std.sumtype.SumType!(
+private alias ProgramLink = TaggedUnion!(
 	LinkedProgram*,
 	LinkedProgramPromise,
 );
@@ -2606,7 +2602,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 			const fetchedInstruction = program.ir[programCounter];
 
 			// dfmt off
-			alias decodeAndExecute = std.sumtype.match!(
+			alias decodeAndExecute = match!(
 				(const(ISA.CallInstruction) call) {
 					const ReturnValue delegate(const LinkedProgram) executor0Tmp = &this.execute;
 					const ReturnValue delegate(const LinkedProgram, Stack.Frame) executor1Tmp = &this.execute;
@@ -3032,6 +3028,271 @@ mixin template EmulatorAppMain() {
 
 version (MindyscriptEmulatorAppMain) {
 	mixin EmulatorAppMain!();
+}
+
+// === Tagged Union ============================================================
+
+struct TaggedUnion(Types...) if (is(NoDuplicates!Types == Types) && (Types.length > 0) && (Types.length < ubyte.max)) {
+
+	import std.traits : isPointer, PointerTarget, TemplateArgsOf, Unconst;
+
+	private {
+		enum istring idOf(size_t idx) = "_" ~ idx.stringof;
+
+		template idxOf(T) {
+			static if (staticIndexOf!(T, Types) >= 0) {
+				enum ubyte idxOf = staticIndexOf!(T, Types) & ubyte.max;
+			}
+			else static if (staticIndexOf!(Unconst!T, Types) >= 0) {
+				enum ubyte idxOf = staticIndexOf!(Unconst!T, Types) & ubyte.max;
+			}
+			else static if (couldHoldUnconstPointer!T) {
+				enum ubyte idxOf = staticIndexOf!(Unconst!(PointerTarget!T)*, Types) & ubyte.max;
+			}
+			else {
+				static assert(
+					false,
+					"`" ~ T.stringof ~ "` is not a member type of this tagged union; applicable types are `" ~ Types
+						.stringof ~ "`."
+				);
+			}
+		}
+
+		template couldHoldUnconstPointer(T) {
+			static if (isPointer!T) {
+				enum bool couldHoldUnconstPointer = (staticIndexOf!(Unconst!(PointerTarget!T)*, Types) >= 0);
+			}
+			else {
+				enum bool couldHoldUnconstPointer = false;
+			}
+		}
+
+		enum bool couldHold(T) = (
+				(staticIndexOf!(T, Types) >= 0) ||
+					(staticIndexOf!(Unconst!T, Types) >= 0) ||
+					(couldHoldUnconstPointer!T)
+			);
+	}
+
+	public {
+		alias Types = TemplateArgsOf!(typeof(this));
+		enum bool canHold(T) = (staticIndexOf!(T, Types) >= 0);
+	}
+
+	private union Storage {
+		static foreach (idx, T; Types) {
+			mixin(`T ` ~ idOf!idx ~ `;`);
+		}
+
+		private inout(T) load(T)() inout @system {
+			return this.tupleof[idxOf!T];
+		}
+
+		private ref inout(T) loadRef(T)() inout @system {
+			return this.tupleof[idxOf!T];
+		}
+
+		private void store(T)(T value) @system {
+			this.tupleof[idxOf!T] = value;
+		}
+	}
+
+	private {
+		Storage _storage;
+		ubyte _tag;
+	}
+
+@safe:
+
+	public this(T)(T value) if (couldHold!T) {
+		this.store(value);
+	}
+
+	public this(typeof(this) value) {
+		_tag = value._tag;
+		_storage = value._storage;
+	}
+
+	public {
+		bool has(T)() const {
+			return (_tag == idxOf!T);
+		}
+
+		inout(T) get(T)() inout @trusted {
+			if (!this.has!T) {
+				assert(false, "`" ~ T.stringof ~ "` is not held by this tagged union instance.");
+			}
+
+			return _storage.load!T;
+		}
+	}
+
+	public {
+		auto opAssign(T)(auto ref T value) if (couldHold!T) {
+			this.store(value);
+			return this;
+		}
+
+		auto opAssign(typeof(this) value) {
+			_tag = value._tag;
+			_storage = value._storage;
+			return this;
+		}
+
+		auto opAssign(ref typeof(this) value) {
+			_tag = value._tag;
+			_storage = value._storage;
+			return this;
+		}
+	}
+
+	private {
+		void store(T)(auto ref T value) @trusted {
+			_storage.store(value);
+			_tag = idxOf!T;
+		}
+	}
+}
+
+template match(Handlers...) {
+	import std.traits;
+
+	auto match(TaggedUnion)(auto ref TaggedUnion tu) @trusted {
+		static foreach (idx, handler; Handlers) {
+			static if (!__traits(isTemplate, handler)) {
+				{
+					alias params = Parameters!handler;
+					static assert(params.length == 1);
+					alias T = Unconst!(params[0]);
+					if (tu._tag == TaggedUnion.idxOf!T) {
+						static if (__traits(compiles, handler(tu._storage.load!T))) {
+							return handler(tu._storage.load!T);
+						}
+						else static if (__traits(compiles, handler(tu._storage.loadRef!T))) {
+							return handler(tu._storage.loadRef!T);
+						}
+					}
+				}
+			}
+		}
+
+		static foreach (idx, handler; Handlers) {
+			static if (__traits(isTemplate, handler)) {
+				{
+					// dfmt off
+					switchTag: switch (tu._tag) {
+						static foreach(T; TaggedUnion.Types) {
+							case TaggedUnion.idxOf!T:
+								static if (__traits(compiles, handler(tu._storage.load!T))) {
+									return handler(tu._storage.load!T);
+								}
+								else static if (__traits(compiles, handler(tu._storage.loadRef!T))) {
+									return handler(tu._storage.loadRef!T);
+								}
+								break switchTag;
+						}
+							default:
+								break;
+					}
+					// dfmt on
+				}
+			}
+		}
+
+		assert(false, "No matching handler provided.");
+	}
+
+	auto match(TaggedUnion)(auto ref TaggedUnion a, auto ref TaggedUnion b) @trusted {
+		static foreach (idx, handler; Handlers) {
+			static if (__traits(isTemplate, handler)) {
+				// dfmt off
+				mixin(`swTagA_` ~ idx.stringof ~ `:` ~ `
+				switch (a._tag) {
+					static foreach(idxA, Ta; TaggedUnion.Types) {
+						case TaggedUnion.idxOf!Ta:
+							mixin("swTagA_" ~ idx.stringof ~ "_B_" ~ idxA.stringof ~ ":" ~ q{ switch (b._tag) {
+								static foreach(Tb; TaggedUnion.Types) {
+									case TaggedUnion.idxOf!Tb:
+										static if (
+											__traits(compiles, handler(a._storage.load!Ta, b._storage.load!Tb))
+										) {
+											return handler(a._storage.load!Ta, b._storage.load!Tb);
+										}
+										else static if (
+											__traits(compiles, handler(a._storage.loadRef!Ta, b._storage.load!Tb))
+										) {
+											return handler(a._storage.loadRef!Ta, b._storage.load!Tb);
+										}
+										else static if (
+											__traits(compiles, handler(a._storage.load!Ta, b._storage.loadRef!Tb))
+										) {
+											return handler(a._storage.load!Ta, b._storage.loadRef!Tb);
+										}
+										else static if (
+											__traits(compiles, handler(a._storage.loadRef!Ta, b._storage.loadRef!Tb))
+										) {
+											return handler(a._storage.loadRef!Ta, b._storage.loadRef!Tb);
+										}
+										else {
+											mixin("break swTagA_" ~ idx.stringof ~ "_B_" ~ idxA.stringof ~ ";");
+										}
+								}
+									default:
+										break;
+							}});
+							break swTagA_` ~ idx.stringof ~ `;
+					}
+						default:
+							break;
+				}`);
+				// dfmt on
+			}
+			else {
+				alias params = Parameters!handler;
+				static assert(params.length == 2);
+				alias TTa = params[0];
+				alias TTb = params[1];
+
+				if ((a._tag == TaggedUnion.idxOf!TTa) && (b._tag == TaggedUnion.idxOf!TTb)) {
+					static if (__traits(compiles, handler(a._storage.load!TTa, b._storage.load!TTb))) {
+						return handler(a._storage.load!TTa, b._storage.load!TTb);
+					}
+					else static if (__traits(compiles, handler(b._storage.load!TTb, a._storage.load!TTa))) {
+						return handler(b._storage.load!TTb, a._storage.load!TTa);
+					}
+					else static if (__traits(compiles, handler(a._storage.loadRef!TTa, b._storage.load!TTb))) {
+						return handler(a._storage.loadRef!TTa, b._storage.load!TTb);
+					}
+					else static if (__traits(compiles, handler(a._storage.load!TTa, b._storage.loadRef!TTb))) {
+						return handler(a._storage.load!TTa, b._storage.loadRef!TTb);
+					}
+					else static if (__traits(compiles, handler(a._storage.loadRef!TTa, b._storage.loadRef!TTb))) {
+						return handler(a._storage.loadRef!TTa, b._storage.loadRef!TTb);
+					}
+				}
+			}
+		}
+
+		assert(false, "No matching handler provided.");
+	}
+}
+
+@safe unittest {
+	alias TU = TaggedUnion!(char, int);
+	auto tu1 = TU();
+	tu1 = TU(12);
+	assert(tu1.get!int == 12);
+
+	assert(tu1.match!((int i) => i) == 12);
+	assert(tu1.match!((ref int i) => i) == 12);
+	assert(tu1.match!((i) => i) == 12);
+	assert(tu1.match!((ref i) => i) == 12);
+
+	auto tu2 = TU(8);
+	assert(match!((int a, int b) => a + b)(tu1, tu2) == 20);
+	assert(match!((ref int a, ref int b) => a + b)(tu1, tu2) == 20);
+	assert(match!((a, b) => a + b)(tu1, tu2) == 20);
+	assert(match!((ref a, ref b) => a + b)(tu1, tu2) == 20);
 }
 
 // === Test Suite ==============================================================
