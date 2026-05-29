@@ -2099,15 +2099,17 @@ struct Assembler {
 		void resolveLabelPromises() {
 			foreach (LabelPromise labelPromise; labelPromises) {
 				const label = this.resolveLabel(labelPromise.identifier, labelPromise.location);
-				ir[][labelPromise.irIdx].match!((ref instruction) {
-					static if (__traits(hasMember, instruction, "targetLocation")) {
-						instruction.targetLocation = label.offset;
-					}
-					else {
-						enum msg = "Unsupported instruction type `" ~ typeof(instruction).stringof ~ "` for label promise.";
-						assert(false, msg);
-					}
-				});
+				() @trusted {
+					ir[][labelPromise.irIdx].match!((ref instruction) @safe {
+						static if (__traits(hasMember, instruction, "targetLocation")) {
+							instruction.targetLocation = label.offset;
+						}
+						else {
+							enum msg = "Unsupported instruction type `" ~ typeof(instruction).stringof ~ "` for label promise.";
+							assert(false, msg);
+						}
+					});
+				}();
 			}
 		}
 	}
@@ -3032,9 +3034,19 @@ version (MindyscriptEmulatorAppMain) {
 
 // === Tagged Union ============================================================
 
-struct TaggedUnion(Types...) if (is(NoDuplicates!Types == Types) && (Types.length > 0) && (Types.length < ubyte.max)) {
+private enum areSuitableTaggedUnionTypes(Types...) = (
+		is(NoDuplicates!Types == Types) && (Types.length > 0) && (Types.length < ubyte.max));
 
-	import std.traits : isPointer, PointerTarget, TemplateArgsOf, Unconst;
+/++
+	A purpose-built [tagged union](https://en.wikipedia.org/wiki/Tagged_union)
+	implementation for mindyscript.
+
+	See_also:
+		In user code, use [std.sumtype] that provides general purpose implementation.
+ +/
+private struct TaggedUnion(Types...) if (areSuitableTaggedUnionTypes!Types) {
+
+	import std.traits;
 
 	private {
 		enum istring idOf(size_t idx) = "_" ~ idx.stringof;
@@ -3079,7 +3091,7 @@ struct TaggedUnion(Types...) if (is(NoDuplicates!Types == Types) && (Types.lengt
 		enum bool canHold(T) = (staticIndexOf!(T, Types) >= 0);
 	}
 
-	private union Storage {
+	private static union Storage {
 		static foreach (idx, T; Types) {
 			mixin(`T ` ~ idOf!idx ~ `;`);
 		}
@@ -3090,6 +3102,10 @@ struct TaggedUnion(Types...) if (is(NoDuplicates!Types == Types) && (Types.lengt
 
 		private ref inout(T) loadRef(T)() inout @system {
 			return this.tupleof[idxOf!T];
+		}
+
+		private inout(T) loadTrusted(T)() inout @trusted {
+			return this.load!T();
 		}
 
 		private void store(T)(T value) @system {
@@ -3133,13 +3149,13 @@ struct TaggedUnion(Types...) if (is(NoDuplicates!Types == Types) && (Types.lengt
 			return this;
 		}
 
-		auto opAssign(typeof(this) value) {
+		auto opAssign(typeof(this) value) @trusted {
 			_tag = value._tag;
 			_storage = value._storage;
 			return this;
 		}
 
-		auto opAssign(ref typeof(this) value) {
+		auto opAssign(ref typeof(this) value) @trusted {
 			_tag = value._tag;
 			_storage = value._storage;
 			return this;
@@ -3157,7 +3173,7 @@ struct TaggedUnion(Types...) if (is(NoDuplicates!Types == Types) && (Types.lengt
 template match(Handlers...) {
 	import std.traits;
 
-	auto match(TaggedUnion)(auto ref TaggedUnion tu) @trusted {
+	auto match(TaggedUnion)(auto ref TaggedUnion tu) {
 		static foreach (idx, handler; Handlers) {
 			static if (!__traits(isTemplate, handler)) {
 				{
@@ -3165,8 +3181,8 @@ template match(Handlers...) {
 					static assert(params.length == 1);
 					alias T = Unconst!(params[0]);
 					if (tu._tag == TaggedUnion.idxOf!T) {
-						static if (__traits(compiles, handler(tu._storage.load!T))) {
-							return handler(tu._storage.load!T);
+						static if (__traits(compiles, handler(tu._storage.loadTrusted!T))) {
+							return handler(tu._storage.loadTrusted!T);
 						}
 						else static if (__traits(compiles, handler(tu._storage.loadRef!T))) {
 							return handler(tu._storage.loadRef!T);
@@ -3183,8 +3199,8 @@ template match(Handlers...) {
 					switchTag: switch (tu._tag) {
 						static foreach(T; TaggedUnion.Types) {
 							case TaggedUnion.idxOf!T:
-								static if (__traits(compiles, handler(tu._storage.load!T))) {
-									return handler(tu._storage.load!T);
+								static if (__traits(compiles, handler(tu._storage.loadTrusted!T))) {
+									return handler(tu._storage.loadTrusted!T);
 								}
 								else static if (__traits(compiles, handler(tu._storage.loadRef!T))) {
 									return handler(tu._storage.loadRef!T);
@@ -3202,7 +3218,7 @@ template match(Handlers...) {
 		assert(false, "No matching handler provided.");
 	}
 
-	auto match(TaggedUnion)(auto ref TaggedUnion a, auto ref TaggedUnion b) @trusted {
+	auto match(TaggedUnion)(auto ref TaggedUnion a, auto ref TaggedUnion b) {
 		static foreach (idx, handler; Handlers) {
 			static if (__traits(isTemplate, handler)) {
 				// dfmt off
@@ -3213,45 +3229,29 @@ template match(Handlers...) {
 							mixin("swTagA_" ~ idx.stringof ~ "_B_" ~ idxA.stringof ~ ":" ~ q{ switch (b._tag) {
 								static foreach(Tb; TaggedUnion.Types) {
 									case TaggedUnion.idxOf!Tb:
-										static if (
-											__traits(compiles, handler(a._storage.load!Ta, b._storage.load!Tb))
-										) {
-											return handler(a._storage.load!Ta, b._storage.load!Tb);
+										static if (__traits(compiles, handler(a._storage.loadTrusted!Ta, b._storage.loadTrusted!Tb))) {
+											return handler(a._storage.loadTrusted!Ta, b._storage.loadTrusted!Tb);
 										}
-										else static if (
-											__traits(compiles, handler(a._storage.loadRef!Ta, b._storage.load!Tb))
-										) {
-											return handler(a._storage.loadRef!Ta, b._storage.load!Tb);
+										else static if (__traits(compiles, handler(a._storage.loadRef!Ta, b._storage.loadTrusted!Tb))) {
+											return handler(a._storage.loadRef!Ta, b._storage.loadTrusted!Tb);
 										}
-										else static if (
-											__traits(compiles, handler(a._storage.load!Ta, b._storage.loadRef!Tb))
-										) {
-											return handler(a._storage.load!Ta, b._storage.loadRef!Tb);
+										else static if (__traits(compiles, handler(a._storage.loadTrusted!Ta, b._storage.loadRef!Tb))) {
+											return handler(a._storage.loadTrusted!Ta, b._storage.loadRef!Tb);
 										}
-										else static if (
-											__traits(compiles, handler(a._storage.loadRef!Ta, b._storage.loadRef!Tb))
-										) {
+										else static if (__traits(compiles, handler(a._storage.loadRef!Ta, b._storage.loadRef!Tb))) {
 											return handler(a._storage.loadRef!Ta, b._storage.loadRef!Tb);
 										}
 
-										else static if (
-											__traits(compiles, handler(b._storage.load!Tb, a._storage.load!Ta))
-										) {
-											return handler(b._storage.load!Tb, a._storage.load!Ta);
+										else static if (__traits(compiles, handler(b._storage.loadTrusted!Tb, a._storage.loadTrusted!Ta))) {
+											return handler(b._storage.loadTrusted!Tb, a._storage.loadTrusted!Ta);
 										}
-										else static if (
-											__traits(compiles, handler(b._storage.loadRef!Tb, a._storage.load!Ta))
-										) {
-											return handler(b._storage.loadRef!Tb, a._storage.load!Ta);
+										else static if (__traits(compiles, handler(b._storage.loadRef!Tb, a._storage.loadTrusted!Ta))) {
+											return handler(b._storage.loadRef!Tb, a._storage.loadTrusted!Ta);
 										}
-										else static if (
-											__traits(compiles, handler(b._storage.load!Tb, a._storage.loadRef!Ta))
-										) {
-											return handler(b._storage.load!Tb, a._storage.loadRef!Ta);
+										else static if (__traits(compiles, handler(b._storage.loadTrusted!Tb, a._storage.loadRef!Ta))) {
+											return handler(b._storage.loadTrusted!Tb, a._storage.loadRef!Ta);
 										}
-										else static if (
-											__traits(compiles, handler(b._storage.loadRef!Tb, a._storage.loadRef!Ta))
-										) {
+										else static if (__traits(compiles, handler(b._storage.loadRef!Tb, a._storage.loadRef!Ta))) {
 											return handler(b._storage.loadRef!Tb, a._storage.loadRef!Ta);
 										}
 
@@ -3276,27 +3276,27 @@ template match(Handlers...) {
 				alias TTb = params[1];
 
 				if ((a._tag == TaggedUnion.idxOf!TTa) && (b._tag == TaggedUnion.idxOf!TTb)) {
-					static if (__traits(compiles, handler(a._storage.load!TTa, b._storage.load!TTb))) {
-						return handler(a._storage.load!TTa, b._storage.load!TTb);
+					static if (__traits(compiles, handler(a._storage.loadTrusted!TTa, b._storage.loadTrusted!TTb))) {
+						return handler(a._storage.loadTrusted!TTa, b._storage.loadTrusted!TTb);
 					}
-					else static if (__traits(compiles, handler(a._storage.loadRef!TTa, b._storage.load!TTb))) {
-						return handler(a._storage.loadRef!TTa, b._storage.load!TTb);
+					else static if (__traits(compiles, handler(a._storage.loadRef!TTa, b._storage.loadTrusted!TTb))) {
+						return handler(a._storage.loadRef!TTa, b._storage.loadTrusted!TTb);
 					}
-					else static if (__traits(compiles, handler(a._storage.load!TTa, b._storage.loadRef!TTb))) {
-						return handler(a._storage.load!TTa, b._storage.loadRef!TTb);
+					else static if (__traits(compiles, handler(a._storage.loadTrusted!TTa, b._storage.loadRef!TTb))) {
+						return handler(a._storage.loadTrusted!TTa, b._storage.loadRef!TTb);
 					}
 					else static if (__traits(compiles, handler(a._storage.loadRef!TTa, b._storage.loadRef!TTb))) {
 						return handler(a._storage.loadRef!TTa, b._storage.loadRef!TTb);
 					}
 
-					else static if (__traits(compiles, handler(b._storage.load!TTb, a._storage.load!TTa))) {
-						return handler(b._storage.load!TTb, a._storage.load!TTa);
+					else static if (__traits(compiles, handler(b._storage.loadTrusted!TTb, a._storage.loadTrusted!TTa))) {
+						return handler(b._storage.loadTrusted!TTb, a._storage.loadTrusted!TTa);
 					}
-					else static if (__traits(compiles, handler(b._storage.loadRef!TTb, a._storage.load!TTa))) {
-						return handler(b._storage.load!TTb, a._storage.loadRef!TTa);
+					else static if (__traits(compiles, handler(b._storage.loadRef!TTb, a._storage.loadTrusted!TTa))) {
+						return handler(b._storage.loadTrusted!TTb, a._storage.loadRef!TTa);
 					}
-					else static if (__traits(compiles, handler(b._storage.load!TTb, a._storage.loadRef!TTa))) {
-						return handler(b._storage.load!TTb, a._storage.loadRef!TTa);
+					else static if (__traits(compiles, handler(b._storage.loadTrusted!TTb, a._storage.loadRef!TTa))) {
+						return handler(b._storage.loadTrusted!TTb, a._storage.loadRef!TTa);
 					}
 					else static if (__traits(compiles, handler(b._storage.loadRef!TTb, a._storage.loadRef!TTa))) {
 						return handler(b._storage.loadRef!TTb, a._storage.loadRef!TTa);
@@ -3316,14 +3316,22 @@ template match(Handlers...) {
 	assert(tu1.get!int == 12);
 
 	assert(tu1.match!((int i) => i) == 12);
-	assert(tu1.match!((ref int i) => i) == 12);
 	assert(tu1.match!((i) => i) == 12);
-	assert(tu1.match!((ref i) => i) == 12);
 
 	auto tu2 = TU(8);
 	assert(match!((int a, int b) => a + b)(tu1, tu2) == 20);
-	assert(match!((ref int a, ref int b) => a + b)(tu1, tu2) == 20);
 	assert(match!((a, b) => a + b)(tu1, tu2) == 20);
+}
+
+@system unittest {
+	alias TU = TaggedUnion!(char, int);
+	auto tu1 = TU();
+	tu1 = TU(12);
+	assert(tu1.match!((ref int i) => i) == 12);
+	assert(tu1.match!((ref i) => i) == 12);
+
+	auto tu2 = TU(8);
+	assert(match!((ref int a, ref int b) => a + b)(tu1, tu2) == 20);
 	assert(match!((ref a, ref b) => a + b)(tu1, tu2) == 20);
 }
 
