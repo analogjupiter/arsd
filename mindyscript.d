@@ -26,6 +26,7 @@ import std.array : appender;
 import std.conv : to;
 import std.math : round;
 import std.meta;
+import std.traits;
 static import std.conv;
 static import std.typecons;
 
@@ -258,8 +259,6 @@ private pragma(inline, true) void executeOperator(istring op, bool fp = true)(
 	Registers registers,
 	BinaryOperationRegisterIDs registerIDs,
 ) @safe {
-	import std.traits;
-
 	alias nullHandlers = AliasSeq!(
 		(typeof(null) lhs, typeof(null) rhs) { registers[registerIDs.dst] = null; },
 		(typeof(null) lhs, rhs) { registers[registerIDs.dst] = null; },
@@ -333,8 +332,6 @@ pragma(inline, true) void executeOperator(
 	Registers registers,
 	UnaryOperationRegisterIDs registerIDs,
 ) @safe {
-	import std.traits;
-
 	alias genericHandler = (x) {
 		alias X = typeof(x);
 
@@ -387,11 +384,7 @@ private UnaryOperationRegisterIDs parseUnaryOperation(
 	return UnaryOperationRegisterIDs(registerDst, registerSrc);
 }
 
-private template isRegisterID(T) {
-	import std.traits : Unqual;
-
-	enum isRegisterID = is(Unqual!T == RegisterID);
-}
+private enum isRegisterID(T) = is(Unqual!T == RegisterID);
 
 // dfmt off
 private bool executeJumpInstruction(istring cmp, Subjects...)(
@@ -524,8 +517,6 @@ private void parseJumpInstruction(InstructionType)(
 	Instruction Set Architecture
  +/
 struct ISA {
-	import std.traits : hasUDA;
-
 	@disable this();
 
 	private struct Op {
@@ -1224,14 +1215,10 @@ struct ISA {
 	}
 
 	template InstructionsSeq() {
-		import std.traits : getSymbolsByUDA;
-
 		alias InstructionsSeq = Filter!(templateNot!isPseudoInstruction, getSymbolsByUDA!(ISA, ISA.Op));
 	}
 
 	template PseudoInstructionsSeq() {
-		import std.traits : getSymbolsByUDA;
-
 		alias PseudoInstructionsSeq = Filter!(isPseudoInstruction, getSymbolsByUDA!(ISA, ISA.Op));
 	}
 
@@ -1246,8 +1233,6 @@ struct ISA {
 alias Instruction = TaggedUnion!(ISA.InstructionsSeq!());
 
 template idOf(Instruction) {
-	import std.traits : getUDAs;
-
 	static assert(getUDAs!(Instruction, ISA.Op).length == 1, "Instruction must have one single `@Op`.");
 	enum istring idOf = getUDAs!(Instruction, ISA.Op)[0].id;
 }
@@ -3052,8 +3037,6 @@ private enum areSuitableTaggedUnionTypes(Types...) = (
  +/
 private struct TaggedUnion(Types...) if (areSuitableTaggedUnionTypes!Types) {
 
-	import std.traits;
-
 	private {
 		enum istring idOf(size_t idx) = "_" ~ idx.stringof;
 
@@ -3177,7 +3160,6 @@ private struct TaggedUnion(Types...) if (areSuitableTaggedUnionTypes!Types) {
 }
 
 template match(Handlers...) {
-	import std.traits;
 
 	auto match(TaggedUnion)(auto ref TaggedUnion tu) {
 		static foreach (idx, handler; Handlers) {
