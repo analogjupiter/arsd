@@ -180,19 +180,25 @@ private mixin template LocationProperty(alias loc) {
 
 alias Variable = TaggedUnion!(
 	typeof(null),
+
 	bool,
-	byte,
+
 	char,
-	double,
-	float,
+	wchar,
+	dchar,
+
+	byte,
+	short,
 	int,
 	long,
-	real,
-	short,
 	ubyte,
+	ushort,
 	uint,
 	ulong,
-	ushort,
+
+	float,
+	double,
+	real,
 );
 
 struct VMVoid {
