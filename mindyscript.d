@@ -387,47 +387,50 @@ private UnaryOperationRegisterIDs parseUnaryOperation(
 private enum isRegisterID(T) = is(Unqual!T == RegisterID);
 
 // dfmt off
-private bool executeJumpInstruction(istring cmp, Subjects...)(
+private void executeJumpInstruction()(
+	ref size_t programCounter,
+	const size_t targetLocation,
+) @safe {
+	programCounter = targetLocation;
+}
+
+private bool executeJumpInstruction(istring cmp)(
 	Registers rg,
 	ref size_t programCounter,
 	const size_t targetLocation,
-	Subjects subjectRegisterIDs,
-) @safe
-if (
-	allSatisfy!(isRegisterID, Subjects)
-	&& (Subjects.length <= 2)
-	&& ((cmp is null) || ((cmp !is null) && (Subjects.length >= 1)))
-) {
-	static if (subjectRegisterIDs.length == 0) {
-		const shallJump = true;
-	}
-
-	static if (subjectRegisterIDs.length == 1) {
-		alias registerSubject = subjectRegisterIDs[0];
-		const subjectValue = rg[registerSubject];
-		const bool shallJump = subjectValue.match!(
-			a => mixin(cmp),
-			(typeof(null) x) => ((int a) => mixin(cmp))(cast(int) x),
-		);
-	}
-
-	static if (subjectRegisterIDs.length == 2) {
-		alias registerLHS = subjectRegisterIDs[0];
-		alias registerRHS = subjectRegisterIDs[1];
-
-		const bool shallJump = match!( // @suppress(dscanner.suspicious.label_var_same_name)
-			(              a,               b)            => mixin(cmp),
-			(typeof(null) na,               b) => ((a, b) => mixin(cmp))(cast(int) na,            b),
-			(              a, typeof(null) nb) => ((a, b) => mixin(cmp))(           a, cast(int) nb),
-		)(rg[registerLHS], rg[registerRHS]);
-	}
+	RegisterID subject,
+) @safe {
+	const subjectValue = rg[subject];
+	const bool shallJump = subjectValue.match!(
+		a => mixin(cmp),
+		(typeof(null) x) => ((int a) => mixin(cmp))(cast(int) x),
+	);
 
 	if (shallJump) {
 		programCounter = targetLocation;
-		return true;
 	}
 
-	return false;
+	return shallJump;
+}
+
+private bool executeJumpInstruction(istring cmp)(
+	Registers rg,
+	ref size_t programCounter,
+	const size_t targetLocation,
+	RegisterID subjectLHS,
+	RegisterID subjectRHS,
+) @safe {
+	const bool shallJump = match!( // @suppress(dscanner.suspicious.label_var_same_name)
+		(              a,               b)            => mixin(cmp),
+		(typeof(null) na,               b) => ((a, b) => mixin(cmp))(cast(int) na,            b),
+		(              a, typeof(null) nb) => ((a, b) => mixin(cmp))(           a, cast(int) nb),
+	)(rg[subjectLHS], rg[subjectRHS]);
+
+	if (shallJump) {
+		programCounter = targetLocation;
+	}
+
+	return shallJump;
 }
 // dfmt on
 
@@ -814,7 +817,8 @@ struct ISA {
 		size_t targetLocation;
 
 		bool execute(Registers rg, ref size_t programCounter) const @safe {
-			return executeJumpInstruction!null(rg, programCounter, targetLocation);
+			executeJumpInstruction(programCounter, targetLocation);
+			return true;
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
