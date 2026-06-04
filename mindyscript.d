@@ -2715,10 +2715,16 @@ Variable evaluate(MemorySafety memorySafety = MemorySafety.system)(
 	VirtualMachineSettings settings = VirtualMachineSettings(),
 ) {
 	auto returnValue = execute!memorySafety(program, settings);
-	return returnValue.match!(
-		(Variable var) => var,
-		(VMVoid void_) => throw new VoidResultException(),
-	);
+
+	if (returnValue.has!Variable) {
+		return returnValue.get!Variable;
+	}
+
+	if (returnValue.has!VMVoid) {
+		throw new VoidResultException();
+	}
+
+	assert(false, "unreachable");
 }
 
 ExitCode boot(MemorySafety memorySafety = MemorySafety.system)(
