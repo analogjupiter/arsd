@@ -601,7 +601,7 @@ struct ISA {
 			const calleeLink = programLinkTable[linkID];
 
 			// dfmt off
-			const callee = calleeLink.match!(
+			const callee = calleeLink.matchAll!(
 				(const(LinkedProgram)* callee) => callee,
 				(const LinkedProgramPromise promise) {
 					const callee = load(promise.identifier);
@@ -632,10 +632,11 @@ struct ISA {
 				return;
 			}
 
-			retVal.match!(
-				(Variable value) => rg[returnedValue] = value,
-				(VMVoid void_) => throw new VoidResultException(),
-			);
+			if (retVal.has!VMVoid) {
+				throw new VoidResultException();
+			}
+			
+			rg[returnedValue] = retVal.get!Variable;
 		}
 
 		static void parse(ref AssemblyInstructionArgumentsParser argsParser, ref Assembler.State state) @safe {
@@ -3136,7 +3137,7 @@ private struct TaggedUnion(Types...) if (areSuitableTaggedUnionTypes!Types) {
 		_storage = value._storage;
 	}
 
-	public {
+	public pragma(inline, true) {
 		bool has(T)() const {
 			return (_tag == idxOf!T);
 		}
@@ -3174,6 +3175,24 @@ private struct TaggedUnion(Types...) if (areSuitableTaggedUnionTypes!Types) {
 			_storage.store(value);
 			_tag = idxOf!T;
 		}
+	}
+}
+
+template matchAll(Handlers...) {
+	auto matchAll(TaggedUnion)(auto ref TaggedUnion tu) {
+		static assert(Handlers.length == TaggedUnion.Types.length);
+
+		// dfmt off
+		switch (tu._tag) {
+			static foreach (idx, T; TaggedUnion.Types[0 .. ($ - 1)]) {
+				case idx:
+					return Handlers[idx](tu._storage.loadTrusted!T);
+			}
+
+			default:
+				return Handlers[$ - 1](tu._storage.loadTrusted!(TaggedUnion.Types[$ - 1]));
+		}
+		// dfmt on
 	}
 }
 
