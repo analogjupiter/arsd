@@ -681,11 +681,20 @@ struct ISA {
 		UnaryOperationRegisterIDs registerIDs;
 		size_t targetType;
 
-		void execute(Registers rg) const @safe {
+		void execute(MemorySafety memorySafety = MemorySafety.system)(Registers rg) const {
 			Variable doCast() {
 				static Variable castOrThrow(TSrc, TDst)(TSrc x) {
 					static if (__traits(compiles, cast(TDst) x)) {
-						return Variable(cast(TDst) x);
+						enum bool unsafeCastForbidden = (
+								(memorySafety == MemorySafety.safe)
+									&& !__traits(compiles, (() @safe => cast(void) cast(TDst) x)())
+							);
+						static if (unsafeCastForbidden) {
+							throw new UnsafeCastException!(TSrc, TDst)();
+						}
+						else {
+							return Variable(cast(TDst) x);
+						}
 					}
 					else {
 						throw new UnsupportedCastException!(TSrc, TDst)();
@@ -2343,6 +2352,18 @@ class CastException : VirtualMachineException {
 	}
 }
 
+final class UnsafeCastException(TSrc, TDst) : VirtualMachineException {
+	alias From = TSrc;
+	alias To = TDst;
+
+	this(istring file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe {
+		enum srcStr = __traits(fullyQualifiedName, TSrc);
+		enum dstStr = __traits(fullyQualifiedName, TDst);
+		static immutable msg = "Casting from `" ~ srcStr ~ "` to `" ~ dstStr ~ "` is unsafe.";
+		super(msg, file, line, next);
+	}
+}
+
 final class UnsupportedCastException(TSrc, TDst) : VirtualMachineException {
 	alias From = TSrc;
 	alias To = TDst;
@@ -2613,6 +2634,9 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 						cast(typeof(ISA.CallInstruction.Executor[1])) executor1Tmp,
 					))();
 					call.execute(stackFrame.data, linkedProgram.functionLinkTable, _stack, &this.load, executor);
+				},
+				(const ISA.CastInstruction cast_) {
+					cast_.execute!(memorySafety)(stackFrame.data);
 				},
 				(const ISA.NoOpInstruction nop) {
 					nop.execute();
