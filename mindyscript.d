@@ -3182,25 +3182,22 @@ template match(Handlers...) {
 					}
 				}
 			}
-		}
-
-		static foreach (idx, handler; Handlers) {
-			static if (__traits(isTemplate, handler)) {
+			else {
 				{
 					// dfmt off
-					switchTag: switch (tu._tag) {
+					switch (tu._tag) {
 						static foreach(T; TaggedUnion.Types) {
-							case TaggedUnion.idxOf!T:
-								static if (__traits(compiles, handler(tu._storage.loadTrusted!T))) {
+							static if (__traits(compiles, handler(tu._storage.loadTrusted!T))) {
+								case TaggedUnion.idxOf!T:
 									return handler(tu._storage.loadTrusted!T);
-								}
-								else static if (__traits(compiles, handler(tu._storage.loadRef!T))) {
+							}
+							else static if (__traits(compiles, handler(tu._storage.loadRef!T))) {
+								case TaggedUnion.idxOf!T:
 									return handler(tu._storage.loadRef!T);
-								}
-								break switchTag;
+							}
 						}
-							default:
-								break;
+								default:
+									break;
 					}
 					// dfmt on
 				}
@@ -3218,42 +3215,28 @@ template match(Handlers...) {
 				switch (a._tag) {
 					static foreach(idxA, Ta; TaggedUnion.Types) {
 						case TaggedUnion.idxOf!Ta:
-							mixin("swTagA_" ~ idx.stringof ~ "_B_" ~ idxA.stringof ~ ":" ~ q{ switch (b._tag) {
+							switch (b._tag) {
 								static foreach(Tb; TaggedUnion.Types) {
-									case TaggedUnion.idxOf!Tb:
-										static if (__traits(compiles, handler(a._storage.loadTrusted!Ta, b._storage.loadTrusted!Tb))) {
+									static if (__traits(compiles, handler(a._storage.loadTrusted!Ta, b._storage.loadTrusted!Tb))) {
+										case TaggedUnion.idxOf!Tb:
 											return handler(a._storage.loadTrusted!Ta, b._storage.loadTrusted!Tb);
-										}
-										else static if (__traits(compiles, handler(a._storage.loadRef!Ta, b._storage.loadTrusted!Tb))) {
+									}
+									else static if (__traits(compiles, handler(a._storage.loadRef!Ta, b._storage.loadTrusted!Tb))) {
+										case TaggedUnion.idxOf!Tb:
 											return handler(a._storage.loadRef!Ta, b._storage.loadTrusted!Tb);
-										}
-										else static if (__traits(compiles, handler(a._storage.loadTrusted!Ta, b._storage.loadRef!Tb))) {
+									}
+									else static if (__traits(compiles, handler(a._storage.loadTrusted!Ta, b._storage.loadRef!Tb))) {
+										case TaggedUnion.idxOf!Tb:
 											return handler(a._storage.loadTrusted!Ta, b._storage.loadRef!Tb);
-										}
-										else static if (__traits(compiles, handler(a._storage.loadRef!Ta, b._storage.loadRef!Tb))) {
+									}
+									else static if (__traits(compiles, handler(a._storage.loadRef!Ta, b._storage.loadRef!Tb))) {
+										case TaggedUnion.idxOf!Tb:
 											return handler(a._storage.loadRef!Ta, b._storage.loadRef!Tb);
-										}
-
-										else static if (__traits(compiles, handler(b._storage.loadTrusted!Tb, a._storage.loadTrusted!Ta))) {
-											return handler(b._storage.loadTrusted!Tb, a._storage.loadTrusted!Ta);
-										}
-										else static if (__traits(compiles, handler(b._storage.loadRef!Tb, a._storage.loadTrusted!Ta))) {
-											return handler(b._storage.loadRef!Tb, a._storage.loadTrusted!Ta);
-										}
-										else static if (__traits(compiles, handler(b._storage.loadTrusted!Tb, a._storage.loadRef!Ta))) {
-											return handler(b._storage.loadTrusted!Tb, a._storage.loadRef!Ta);
-										}
-										else static if (__traits(compiles, handler(b._storage.loadRef!Tb, a._storage.loadRef!Ta))) {
-											return handler(b._storage.loadRef!Tb, a._storage.loadRef!Ta);
-										}
-
-										else {
-											mixin("break swTagA_" ~ idx.stringof ~ "_B_" ~ idxA.stringof ~ ";");
-										}
+									}
 								}
-									default:
-										break;
-							}});
+										default:
+											break;
+							}
 							break swTagA_` ~ idx.stringof ~ `;
 					}
 						default:
@@ -3279,19 +3262,6 @@ template match(Handlers...) {
 					}
 					else static if (__traits(compiles, handler(a._storage.loadRef!TTa, b._storage.loadRef!TTb))) {
 						return handler(a._storage.loadRef!TTa, b._storage.loadRef!TTb);
-					}
-
-					else static if (__traits(compiles, handler(b._storage.loadTrusted!TTb, a._storage.loadTrusted!TTa))) {
-						return handler(b._storage.loadTrusted!TTb, a._storage.loadTrusted!TTa);
-					}
-					else static if (__traits(compiles, handler(b._storage.loadRef!TTb, a._storage.loadTrusted!TTa))) {
-						return handler(b._storage.loadTrusted!TTb, a._storage.loadRef!TTa);
-					}
-					else static if (__traits(compiles, handler(b._storage.loadTrusted!TTb, a._storage.loadRef!TTa))) {
-						return handler(b._storage.loadTrusted!TTb, a._storage.loadRef!TTa);
-					}
-					else static if (__traits(compiles, handler(b._storage.loadRef!TTb, a._storage.loadRef!TTa))) {
-						return handler(b._storage.loadRef!TTb, a._storage.loadRef!TTa);
 					}
 				}
 			}
