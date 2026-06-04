@@ -635,7 +635,7 @@ struct ISA {
 			if (retVal.has!VMVoid) {
 				throw new VoidResultException();
 			}
-			
+
 			rg[returnedValue] = retVal.get!Variable;
 		}
 
@@ -2548,19 +2548,15 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 			return ExitCode(true);
 		}
 
-		if (result.has!Variable) {
-			auto var = result.get!Variable;
-			if (var.has!bool) {
-				return ExitCode(var.get!bool);
-			}
-			if (var.has!int) {
-				return ExitCode(var.get!int);
-			}
-
-			throw new VirtualMachineException("Bad exit-code type.");
+		auto var = result.get!Variable;
+		if (var.has!bool) {
+			return ExitCode(var.get!bool);
+		}
+		if (var.has!int) {
+			return ExitCode(var.get!int);
 		}
 
-		assert(false, "unreachable");
+		throw new VirtualMachineException("Bad exit-code type.");
 	}
 
 	ReturnValue execute(string programIdentifier) {
@@ -2673,10 +2669,12 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 	Variable evaluate(const LinkedProgram program) {
 		auto returnValue = this.execute(program);
-		return returnValue.match!(
-			(Variable var) => var,
-			(VMVoid void_) => throw new VoidResultException(),
-		);
+
+		if (returnValue.has!VMVoid) {
+			throw new VoidResultException();
+		}
+
+		return returnValue.get!Variable;
 	}
 
 	private LinkedProgram link(const Program* program) @safe {
@@ -2717,15 +2715,11 @@ Variable evaluate(MemorySafety memorySafety = MemorySafety.system)(
 ) {
 	auto returnValue = execute!memorySafety(program, settings);
 
-	if (returnValue.has!Variable) {
-		return returnValue.get!Variable;
-	}
-
 	if (returnValue.has!VMVoid) {
 		throw new VoidResultException();
 	}
 
-	assert(false, "unreachable");
+	return returnValue.get!Variable;
 }
 
 ExitCode boot(MemorySafety memorySafety = MemorySafety.system)(
