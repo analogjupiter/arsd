@@ -2769,10 +2769,10 @@ ExitCode boot(MemorySafety memorySafety = MemorySafety.system)(
 	return vm.boot!memorySafety(program);
 }
 
-version (unittest) {
-	private alias executeSafe = execute!(MemorySafety.safe);
-	private alias evaluateSafe = evaluate!(MemorySafety.safe);
-	private alias bootSafe = boot!(MemorySafety.safe);
+public {
+	alias bootSafe = boot!(MemorySafety.safe);
+	alias evaluateSafe = evaluate!(MemorySafety.safe);
+	alias executeSafe = execute!(MemorySafety.safe);
 }
 
 @safe unittest {
