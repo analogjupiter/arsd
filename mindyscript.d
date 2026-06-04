@@ -2508,7 +2508,7 @@ private alias ProgramLink = TaggedUnion!(
 	LinkedProgramPromise,
 );
 
-final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
+final class VirtualMachine {
 
 	private {
 		VirtualMachineSettings _settings;
@@ -2554,7 +2554,7 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 		_machineInitialized = true;
 	}
 
-	private void initializeMachine() {
+	private void initializeMachine() @safe {
 		if (_machineInitialized) {
 			return;
 		}
@@ -2562,143 +2562,152 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 		return initializeMachineForced();
 	}
 
-	ExitCode boot(const Program main) {
-		ReturnValue result = this.execute(main);
-
-		if (result.has!VMVoid) {
-			return ExitCode(true);
-		}
-
-		auto var = result.get!Variable;
-		if (var.has!bool) {
-			return ExitCode(var.get!bool);
-		}
-		if (var.has!int) {
-			return ExitCode(var.get!int);
-		}
-
-		throw new VirtualMachineException("Bad exit-code type.");
-	}
-
-	ReturnValue execute(string programIdentifier) {
-		const linkedProgram = this.load(programIdentifier);
-		if (linkedProgram is null) {
-			throw new UndefinedProgramException(programIdentifier);
-		}
-
-		return this.execute(*linkedProgram);
-	}
-
-	private LinkedProgram* load(string identifier) {
+	private LinkedProgram* load(string identifier) @safe {
 		return identifier in _registry;
 	}
 
-	ReturnValue execute(const Program program) {
-		scope programPtr = (() @trusted => &program)();
-		return this.execute(programPtr);
+	template boot(MemorySafety memorySafety = MemorySafety.system) {
+
+		ExitCode boot(const Program main) {
+			ReturnValue result = this.execute!memorySafety(main);
+
+			if (result.has!VMVoid) {
+				return ExitCode(true);
+			}
+
+			auto var = result.get!Variable;
+			if (var.has!bool) {
+				return ExitCode(var.get!bool);
+			}
+			if (var.has!int) {
+				return ExitCode(var.get!int);
+			}
+
+			throw new VirtualMachineException("Bad exit-code type.");
+		}
 	}
 
-	ReturnValue execute(const scope Program* program) {
-		const linked = this.link(program);
-		return this.execute(linked);
-	}
+	template execute(MemorySafety memorySafety = MemorySafety.system) {
 
-	ReturnValue execute(const scope LinkedProgram linkedProgram) {
-		this.initializeMachine();
-		const program = linkedProgram.program;
+		ReturnValue execute(string programIdentifier) {
+			const linkedProgram = this.load(programIdentifier);
+			if (linkedProgram is null) {
+				throw new UndefinedProgramException(programIdentifier);
+			}
 
-		Stack.Frame stackFrame = _stack.push(program.registerCount);
-		scope (exit) {
-			_stack.pop(stackFrame);
+			return this.execute(*linkedProgram);
 		}
 
-		return execute(linkedProgram, stackFrame);
-	}
+		ReturnValue execute(const Program program) {
+			scope programPtr = (() @trusted => &program)();
+			return this.execute(programPtr);
+		}
 
-	ReturnValue execute(const scope LinkedProgram linkedProgram, Stack.Frame stackFrame) {
-		this.initializeMachine();
-		const program = linkedProgram.program;
+		ReturnValue execute(const scope Program* program) {
+			const linked = this.link(program);
+			return this.execute(linked);
+		}
 
-		ReturnValue returnValue = ReturnValue(VMVoid());
+		ReturnValue execute(const scope LinkedProgram linkedProgram) {
+			this.initializeMachine();
+			const program = linkedProgram.program;
 
-		void fetchDecodeAndExecute(ref size_t programCounter) {
-			const fetchedInstruction = program.ir[programCounter];
+			Stack.Frame stackFrame = _stack.push(program.registerCount);
+			scope (exit) {
+				_stack.pop(stackFrame);
+			}
 
-			// dfmt off
-			alias decodeAndExecute = match!(
-				(const(ISA.CallInstruction) call) {
-					const ReturnValue delegate(const LinkedProgram) executor0Tmp = &this.execute;
-					const ReturnValue delegate(const LinkedProgram, Stack.Frame) executor1Tmp = &this.execute;
-					const executor = (() @trusted => ISA.CallInstruction.Executor( // `@trusted` is a sweet lie.
-						cast(typeof(ISA.CallInstruction.Executor[0])) executor0Tmp,
-						cast(typeof(ISA.CallInstruction.Executor[1])) executor1Tmp,
-					))();
-					call.execute(stackFrame.data, linkedProgram.functionLinkTable, _stack, &this.load, executor);
-				},
-				(const ISA.CastInstruction cast_) {
-					cast_.execute!(memorySafety)(stackFrame.data);
-				},
-				(const ISA.NoOpInstruction nop) {
-					nop.execute();
-				},
-				(const ISA.ReturnInstruction ret) {
-					returnValue = ret.execute(stackFrame.data);
-					programCounter = program.ir.length; // break program execution loop
-				},
-				(const decodedInstruction) {
-					alias InstructionType = typeof(decodedInstruction);
-					enum  isJumpInstruction = ISA.isJumpInstruction!InstructionType;
+			return this.execute(linkedProgram, stackFrame);
+		}
 
-					static if (isJumpInstruction) {
-						const bool didJump = decodedInstruction.execute(stackFrame.data, programCounter);
-						if (didJump) {
-							--programCounter; // compensate scheduled increment
+		ReturnValue execute(const scope LinkedProgram linkedProgram, Stack.Frame stackFrame) {
+			this.initializeMachine();
+			const program = linkedProgram.program;
+
+			ReturnValue returnValue = ReturnValue(VMVoid());
+
+			void fetchDecodeAndExecute(ref size_t programCounter) {
+				const fetchedInstruction = program.ir[programCounter];
+
+				// dfmt off
+				alias decodeAndExecute = match!(
+					(const(ISA.CallInstruction) call) {
+						const ReturnValue delegate(const LinkedProgram) executor0Tmp = &this.execute!(memorySafety);
+						const ReturnValue delegate(const LinkedProgram, Stack.Frame) executor1Tmp = &this.execute!(memorySafety);
+						const executor = (() @trusted => ISA.CallInstruction.Executor( // `@trusted` is a sweet lie.
+							cast(typeof(ISA.CallInstruction.Executor[0])) executor0Tmp,
+							cast(typeof(ISA.CallInstruction.Executor[1])) executor1Tmp,
+						))();
+						call.execute(stackFrame.data, linkedProgram.functionLinkTable, _stack, &this.load, executor);
+					},
+					(const ISA.CastInstruction cast_) {
+						cast_.execute!(memorySafety)(stackFrame.data);
+					},
+					(const ISA.NoOpInstruction nop) {
+						nop.execute();
+					},
+					(const ISA.ReturnInstruction ret) {
+						returnValue = ret.execute(stackFrame.data);
+						programCounter = program.ir.length; // break program execution loop
+					},
+					(const decodedInstruction) {
+						alias InstructionType = typeof(decodedInstruction);
+						enum  isJumpInstruction = ISA.isJumpInstruction!InstructionType;
+
+						static if (isJumpInstruction) {
+							const bool didJump = decodedInstruction.execute(stackFrame.data, programCounter);
+							if (didJump) {
+								--programCounter; // compensate scheduled increment
+							}
 						}
-					}
-					else {
-						decodedInstruction.execute(stackFrame.data);
-					}
-				},
-			);
-			// dfmt on
+						else {
+							decodedInstruction.execute(stackFrame.data);
+						}
+					},
+				);
+				// dfmt on
 
-			decodeAndExecute(fetchedInstruction);
+				decodeAndExecute(fetchedInstruction);
+			}
+
+			for (size_t programCounter = 0; programCounter < program.ir.length; ++programCounter) {
+				fetchDecodeAndExecute(programCounter);
+			}
+
+			return returnValue;
 		}
-
-		for (size_t programCounter = 0; programCounter < program.ir.length; ++programCounter) {
-			fetchDecodeAndExecute(programCounter);
-		}
-
-		return returnValue;
 	}
 
-	Variable evaluate(string programIdentifier) {
-		const linkedProgram = this.load(programIdentifier);
-		if (linkedProgram is null) {
-			throw new UndefinedProgramException(programIdentifier);
+	template evaluate(MemorySafety memorySafety = MemorySafety.system) {
+
+		Variable evaluate(string programIdentifier) {
+			const linkedProgram = this.load(programIdentifier);
+			if (linkedProgram is null) {
+				throw new UndefinedProgramException(programIdentifier);
+			}
+
+			return this.evaluate(*linkedProgram);
 		}
 
-		return this.evaluate(*linkedProgram);
-	}
-
-	Variable evaluate(const Program program) {
-		scope programPtr = (() @trusted => &program)();
-		return this.evaluate(programPtr);
-	}
-
-	Variable evaluate(scope const Program* program) {
-		const linked = this.link(program);
-		return this.evaluate(linked);
-	}
-
-	Variable evaluate(const LinkedProgram program) {
-		auto returnValue = this.execute(program);
-
-		if (returnValue.has!VMVoid) {
-			throw new VoidResultException();
+		Variable evaluate(const Program program) {
+			scope programPtr = (() @trusted => &program)();
+			return this.evaluate(programPtr);
 		}
 
-		return returnValue.get!Variable;
+		Variable evaluate(scope const Program* program) {
+			const linked = this.link(program);
+			return this.evaluate(linked);
+		}
+
+		Variable evaluate(const LinkedProgram program) {
+			auto returnValue = this.execute(program);
+
+			if (returnValue.has!VMVoid) {
+				throw new VoidResultException();
+			}
+
+			return returnValue.get!Variable;
+		}
 	}
 
 	private LinkedProgram link(const Program* program) @safe {
@@ -2716,6 +2725,12 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 		return LinkedProgram(program, linkTable);
 	}
+
+	public {
+		alias bootSafe = boot!(MemorySafety.safe);
+		alias evaluateSafe = evaluate!(MemorySafety.safe);
+		alias executeSafe = execute!(MemorySafety.safe);
+	}
 }
 
 // === Convenience functions ===================================================
@@ -2729,8 +2744,8 @@ ReturnValue execute(MemorySafety memorySafety = MemorySafety.system)(
 	const Program program,
 	VirtualMachineSettings settings = VirtualMachineSettings(),
 ) {
-	auto vm = new VirtualMachine!memorySafety(settings);
-	return vm.execute(program);
+	auto vm = new VirtualMachine(settings);
+	return vm.execute!memorySafety(program);
 }
 
 Variable evaluate(MemorySafety memorySafety = MemorySafety.system)(
@@ -2750,15 +2765,14 @@ ExitCode boot(MemorySafety memorySafety = MemorySafety.system)(
 	const Program program,
 	VirtualMachineSettings settings = VirtualMachineSettings(),
 ) {
-	auto vm = new VirtualMachine!memorySafety(settings);
-	return vm.boot(program);
+	auto vm = new VirtualMachine(settings);
+	return vm.boot!memorySafety(program);
 }
 
 version (unittest) {
 	private alias executeSafe = execute!(MemorySafety.safe);
 	private alias evaluateSafe = evaluate!(MemorySafety.safe);
 	private alias bootSafe = boot!(MemorySafety.safe);
-	private alias SafeVirtualMachine = VirtualMachine!(MemorySafety.safe);
 }
 
 @safe unittest {
@@ -3641,9 +3655,9 @@ template match(Handlers...) {
 	auto func = assemble("LDI x,7\nRET x\n");
 	auto main = assemble("CALL r,func\nRET r");
 
-	auto vm = new SafeVirtualMachine();
+	auto vm = new VirtualMachine();
 	vm.register("func", func);
-	assert(vm.evaluate(main).get!int == 7);
+	assert(vm.evaluateSafe(main).get!int == 7);
 }
 
 // function call with arguments
@@ -3651,9 +3665,9 @@ template match(Handlers...) {
 	auto sum = assemble("REG a\nREG b\nADD a,a,b\nRET a\n");
 	auto main = assemble("LDI x,7\nLDI y,8\nCALL r,sum,x,y\nRET r");
 
-	auto vm = new SafeVirtualMachine();
+	auto vm = new VirtualMachine();
 	vm.register("sum", sum);
-	assert(vm.evaluate(main).get!int == 15);
+	assert(vm.evaluateSafe(main).get!int == 15);
 }
 
 // void function call with arguments
@@ -3661,7 +3675,7 @@ template match(Handlers...) {
 	auto subp = assemble("REG a\nREG b\nADD a,a,b\nLDI c,15\nJEQ success,a,c\nCRASH\nsuccess: RET\n");
 	auto main = assemble("LDI x,7\nLDI y,8\nCALL void,subp,x,y\n");
 
-	auto vm = new SafeVirtualMachine();
+	auto vm = new VirtualMachine();
 	vm.register("subp", subp);
-	assert(vm.boot(main).isSuccess);
+	assert(vm.bootSafe(main).isSuccess);
 }
