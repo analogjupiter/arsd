@@ -2542,16 +2542,24 @@ final class VirtualMachine(MemorySafety memorySafety = MemorySafety.system) {
 
 	ExitCode boot(const Program main) {
 		ReturnValue result = this.execute(main);
-		// dfmt off
-		return result.match!(
-			(Variable var) => var.match!(
-				(bool exitSuccess) => ExitCode(exitSuccess),
-				(int exitCodeValue) => ExitCode(exitCodeValue),
-				_ => throw new VirtualMachineException("Bad exit-code type."),
-			),
-			(VMVoid _) => ExitCode(true),
-		);
-		// dfmt on
+
+		if (result.has!VMVoid) {
+			return ExitCode(true);
+		}
+
+		if (result.has!Variable) {
+			auto var = result.get!Variable;
+			if (var.has!bool) {
+				return ExitCode(var.get!bool);
+			}
+			if (var.has!int) {
+				return ExitCode(var.get!int);
+			}
+
+			throw new VirtualMachineException("Bad exit-code type.");
+		}
+
+		assert(false, "unreachable");
 	}
 
 	ReturnValue execute(string programIdentifier) {
