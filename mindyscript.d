@@ -53,18 +53,33 @@ class InvalidArgumentException(T) : MindyscriptException {
 	}
 
 @safe pure nothrow:
+
+	// dfmt off
+	static if (__traits(compiles, () nothrow => T.init.to!istring())) {
+		private this(
+			istring argumentName,
+			istring details,
+			T badValue,
+			istring file = __FILE__, size_t line = __LINE__, Throwable next = null
+		) {
+			const msg = "Invalid argument `" ~ argumentName ~ "` (=`" ~ badValue.to!istring() ~ "`): " ~ details;
+			this(argumentName, details, badValue, msg, file, line, next);
+		}
+	}
+	// dfmt on
+
 	private this(
 		istring argumentName,
 		istring details,
 		T badValue,
+		istring errorMessage,
 		istring file = __FILE__, size_t line = __LINE__, Throwable next = null
 	) {
 		this.argumentName = argumentName;
 		this.details = details;
 		this.badValue = badValue;
 
-		const msg = "Invalid argument `" ~ argumentName ~ "` (=`" ~ badValue.to!istring() ~ "`): " ~ details;
-		super(msg, file, line, next);
+		super(errorMessage, file, line, next);
 	}
 }
 
@@ -99,6 +114,25 @@ class ArgumentOutOfRangeException(T) : InvalidArgumentException!T {
 			~ "`" ~ this.maxValue.to!istring() ~ "`" ~ rangeEnd;
 
 		super(argumentName, details, badValue, file, line, next);
+	}
+}
+
+class InvalidOperandException(T) : InvalidArgumentException!T {
+
+	public {
+		istring operation;
+	}
+
+@safe pure nothrow:
+	private this(
+		istring operation,
+		istring argumentName,
+		istring details,
+		T badValue,
+		istring file = __FILE__, size_t line = __LINE__, Throwable next = null
+	) {
+		this.operation = operation;
+		super(argumentName, details, badValue, details, file, line, next);
 	}
 }
 
@@ -179,7 +213,7 @@ private mixin template LocationProperty(alias loc) {
 
 // === Type System =============================================================
 
-alias Variable = TaggedUnion!(
+alias BasicTypes = AliasSeq!(
 	typeof(null),
 
 	bool,
@@ -200,6 +234,24 @@ alias Variable = TaggedUnion!(
 	float,
 	double,
 	real,
+);
+
+///
+enum bool isBasicType(T) = (staticIndexOf!(Unconst!T, BasicTypes) >= 0);
+
+struct Array {
+	ubyte _tag;
+	size_t _length;
+	void* _data;
+}
+
+alias AggregateTypes = AliasSeq!(
+	Array,
+);
+
+alias Variable = TaggedUnion!(
+	BasicTypes,
+	AggregateTypes,
 );
 
 struct VMVoid {
@@ -402,8 +454,14 @@ private bool executeJumpInstruction(istring cmp)(
 ) @safe {
 	const subjectValue = rg[subject];
 	const bool shallJump = subjectValue.match!(
-		a => mixin(cmp),
 		(typeof(null) x) => ((int a) => mixin(cmp))(cast(int) x),
+		(const(Array) array) => throw new InvalidOperandException!(const(Array))(
+				cmp,
+				"subject",
+				"Cannot use `Array` as subject for a conditional jump.",
+				array,
+			),
+		(a) => mixin(cmp),
 	);
 
 	if (shallJump) {
